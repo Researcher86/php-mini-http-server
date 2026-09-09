@@ -12,15 +12,20 @@ use App\Http\Response\HttpResponse;
 /**
  * Maps an HttpRequest to the handler that answers it.
  *
- * Routes are registered as (method, path) pairs — Phase 9 is exact paths
- * only, Phase 10 adds parameterized segments. Dispatch is a plain lookup,
- * then an invoke: the router does not parse bodies, apply middleware or
- * catch handler errors; each of those is a later phase.
+ * Routes are (method, path) pairs; a path may be exact ("/users") or a
+ * pattern with {name} parameters ("/users/{id}"). Exact routes win over
+ * patterns, so "/users/me" is matched literally even when "/users/{id}"
+ * is also registered. The handler receives the request and the extracted
+ * parameters, so routing stays a pure lookup: no body parsing, no
+ * middleware, no error handling — each of those is a later phase.
  */
 final class Router
 {
-    /** @var array<string, array<string, Closure(HttpRequest): HttpResponse>> method → path → handler */
-    private array $routes = [];
+    /** @var array<string, array<string, Closure(HttpRequest, array<string, string>): HttpResponse>> */
+    private array $exact = [];
+
+    /** @var array<string, list<Route>> method → ordered pattern routes */
+    private array $patterns = [];
 
     public function get(string $path, Closure $handler): void
     {
@@ -44,7 +49,11 @@ final class Router
 
     public function add(HttpMethod $method, string $path, Closure $handler): void
     {
-        $this->routes[$method->value][$path] = $handler;
+        if (str_contains($path, '{')) {
+            $this->patterns[$method->value][] = new Route($path, $handler);
+        } else {
+            $this->exact[$method->value][$path] = $handler;
+        }
     }
 
     /**
@@ -52,27 +61,58 @@ final class Router
      */
     public function dispatch(HttpRequest $request): HttpResponse
     {
-        $handler = $this->routes[$request->method->value][$request->path()] ?? null;
+        $method = $request->method->value;
+        $path = $request->path();
 
-        if ($handler === null) {
+        $handler = $this->exact[$method][$path] ?? null;
+
+        if ($handler !== null) {
+            return $handler($request, []);
+        }
+
+        $route = $this->matchPattern($method, $path);
+
+        if ($route === null) {
             throw new RouteNotFoundException(sprintf(
                 'No route for %s %s',
                 $request->method->value,
-                $request->path(),
+                $path,
             ));
         }
 
-        return $handler($request);
+        $params = [];
+        preg_match($route->regex, $path, $params);
+        $params = array_filter($params, 'is_string', ARRAY_FILTER_USE_KEY);
+
+        return ($route->handler)($request, $params);
     }
 
     public function count(): int
     {
         $total = 0;
 
-        foreach ($this->routes as $byMethod) {
+        foreach ($this->exact as $byMethod) {
+            $total += count($byMethod);
+        }
+
+        foreach ($this->patterns as $byMethod) {
             $total += count($byMethod);
         }
 
         return $total;
+    }
+
+    /**
+     * First matching pattern in registration order.
+     */
+    private function matchPattern(string $method, string $path): ?Route
+    {
+        foreach ($this->patterns[$method] ?? [] as $route) {
+            if (preg_match($route->regex, $path) === 1) {
+                return $route;
+            }
+        }
+
+        return null;
     }
 }

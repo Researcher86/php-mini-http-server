@@ -55,6 +55,9 @@ $router->post('/users', static fn (HttpRequest $r): HttpResponse => ResponseFact
     ['received' => $r->body],
     HttpStatusCode::CREATED,
 ));
+$router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::json([
+    'id' => $params['id'],
+]));
 
 pcntl_async_signals(true);
 pcntl_signal(SIGINT, static fn () => $loop->stop());

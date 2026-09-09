@@ -95,6 +95,62 @@ final class RouterTest extends TestCase
         $this->assertSame(3, $this->router->count());
     }
 
+    public function testPatternRouteExtractsParameters(): void
+    {
+        $this->router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::json([
+            'id' => $params['id'],
+        ]));
+
+        $this->assertSame(
+            '{"id":"42"}',
+            $this->router->dispatch($this->request('/users/42'))->body,
+        );
+    }
+
+    public function testMultipleParametersInOneRoute(): void
+    {
+        $this->router->get('/users/{userId}/posts/{postId}', static function (HttpRequest $r, array $params): HttpResponse {
+            return ResponseFactory::json([$params['userId'], $params['postId']]);
+        });
+
+        $this->assertSame(
+            '["7","3"]',
+            $this->router->dispatch($this->request('/users/7/posts/3'))->body,
+        );
+    }
+
+    public function testPatternDoesNotCrossSegmentBoundaries(): void
+    {
+        $this->router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::empty());
+
+        $this->expectException(RouteNotFoundException::class);
+        $this->router->dispatch($this->request('/users/42/orders'));
+    }
+
+    public function testExactRouteWinsOverPattern(): void
+    {
+        $this->router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::text('pattern'));
+        $this->router->get('/users/me', static fn (HttpRequest $r): HttpResponse => ResponseFactory::text('exact'));
+
+        $this->assertSame('exact', $this->router->dispatch($this->request('/users/me'))->body);
+        $this->assertSame('pattern', $this->router->dispatch($this->request('/users/42'))->body);
+    }
+
+    public function testExactRouteReceivesEmptyParams(): void
+    {
+        $this->router->get('/hello', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::json($params));
+
+        $this->assertSame('[]', $this->router->dispatch($this->request('/hello'))->body);
+    }
+
+    public function testPatternCountsAsOneRoute(): void
+    {
+        $this->router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::empty());
+        $this->router->get('/users', static fn (HttpRequest $r): HttpResponse => ResponseFactory::empty());
+
+        $this->assertSame(2, $this->router->count());
+    }
+
     private function request(string $target, HttpMethod $method = HttpMethod::GET): HttpRequest
     {
         return new HttpRequest(
