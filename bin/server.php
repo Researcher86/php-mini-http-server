@@ -25,15 +25,10 @@ use App\Server\ServerStartException;
 require __DIR__ . '/../vendor/autoload.php';
 
 /**
- * Phases 5-9: raw TCP bytes become HttpRequest objects, the router picks the
- * handler, and the response is queued and flushed through the connection's
- * WriteBuffer, surviving partial socket writes.
- *
- * A request is parsed out of the read buffer, the matching response is
- * queued, and a writable watcher drains the write buffer until it is empty.
- * This is the write path every later phase (keep-alive, backpressure) builds
- * on. Responses that happen to be small are still routed through the same
- * buffer so one code path serves them all.
+ * Phases 5-14: raw TCP bytes become HttpRequest objects, the router picks
+ * the handler, and the response is flushed through the WriteBuffer. After a
+ * full response the connection either goes back to reading (keep-alive) or
+ * closes, so many requests reuse one TCP connection.
  */
 $host = getenv('HTTP_SERVER_HOST') ?: '127.0.0.1';
 $port = (int) (getenv('HTTP_SERVER_PORT') ?: '8080');
@@ -100,21 +95,31 @@ pcntl_signal(SIGINT, static fn () => $loop->stop());
 pcntl_signal(SIGTERM, static fn () => $loop->stop());
 
 /**
- * Drain a connection's write buffer into its socket until it is empty, then
- * stop watching for writable events. Everything flows through the buffer so
- * a socket that accepts only part of a large response is handled the same
- * way as a socket that takes it all at once.
+ * Drain a connection's write buffer into its socket, waiting on writable
+ * events for however long the socket needs, then run $onDrained once the
+ * buffer is fully empty. Everything flows through the buffer so a socket
+ * that accepts only part of a large response is handled the same way as a
+ * socket that takes it all at once.
+ *
+ * @param Closure(): void|null $onDrained
  */
-$flush = static function (SelectLoop $loop, Connection $connection): void {
+$drain = static function (SelectLoop $loop, Connection $connection, ?Closure $onDrained = null): void {
     $stream = $connection->socket();
-    $written = $connection->flushWrite($stream);
 
-    if ($written <= 0 || $connection->writeBuffer()->isEmpty()) {
-        $loop->removeWritable($stream);
-    }
+    $loop->onWritable($stream, static function ($s) use ($loop, $connection, $onDrained): void {
+        $connection->flushWrite($s);
+
+        if ($connection->writeBuffer()->isEmpty()) {
+            $loop->removeWritable($s);
+
+            if ($onDrained !== null) {
+                $onDrained();
+            }
+        }
+    });
 };
 
-$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $routerNotFound, $flush): void {
+$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $routerNotFound, $drain): void {
     $connection = $server->accept();
 
     if ($connection === null) {
@@ -125,7 +130,7 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
     $connection->startReading();
 
-    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $routerNotFound, $flush): void {
+    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $routerNotFound, $drain): void {
         $data = fread($stream, 8192);
 
         if ($data === false || $data === '') { // EOF → client is gone
@@ -148,10 +153,10 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
             $connection->startWriting();
             $connection->queueWrite($encoder->encode($response));
-            $flush($loop, $connection);
-
-            $loop->removeReadable($stream);
-            $server->close($connection);
+            $drain($loop, $connection, static function () use ($loop, $stream, $server, $connection): void {
+                $loop->removeReadable($stream);
+                $server->close($connection);
+            });
             return;
         }
 
@@ -163,14 +168,23 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
         $request = $parsed->request;
 
+        $keepAlive = $request->wantsKeepAlive();
         $response = $routerNotFound->handle($request);
+        $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
 
         $connection->startWriting();
         $connection->queueWrite($encoder->encode($response));
-        $flush($loop, $connection);
 
-        $loop->removeReadable($stream);
-        $server->close($connection);
+        // Phase 14: after the response is fully written the connection is
+        // free to read the next request (keep-alive) or must be torn down.
+        $drain($loop, $connection, $keepAlive
+            ? static function () use ($connection): void {
+                $connection->backToReading();
+            }
+            : static function () use ($loop, $stream, $server, $connection): void {
+                $loop->removeReadable($stream);
+                $server->close($connection);
+            });
     });
 });
 

@@ -46,6 +46,58 @@ final class HttpRequestTest extends TestCase
         $this->assertNull($request->header('Missing'));
     }
 
+    public function testHttp11KeepsAliveByDefault(): void
+    {
+        $request = $this->requestWithTarget('/');
+
+        $this->assertTrue($request->wantsKeepAlive());
+    }
+
+    public function testHttp11ClosesOnExplicitConnectionClose(): void
+    {
+        $headers = new Headers();
+        $headers->set('Connection', 'close');
+
+        $request = new HttpRequest(
+            method: HttpMethod::GET,
+            target: '/',
+            version: HttpVersion::HTTP_1_1,
+            headers: $headers,
+            body: '',
+        );
+
+        $this->assertFalse($request->wantsKeepAlive());
+    }
+
+    public function testHttp10ClosesByDefault(): void
+    {
+        $request = new HttpRequest(
+            method: HttpMethod::GET,
+            target: '/',
+            version: HttpVersion::HTTP_1_0,
+            headers: new Headers(),
+            body: '',
+        );
+
+        $this->assertFalse($request->wantsKeepAlive());
+    }
+
+    public function testHttp10KeepsAliveOnExplicitConnectionKeepAlive(): void
+    {
+        $headers = new Headers();
+        $headers->set('Connection', 'keep-alive');
+
+        $request = new HttpRequest(
+            method: HttpMethod::GET,
+            target: '/',
+            version: HttpVersion::HTTP_1_0,
+            headers: $headers,
+            body: '',
+        );
+
+        $this->assertTrue($request->wantsKeepAlive());
+    }
+
     private function requestWithTarget(string $target): HttpRequest
     {
         return new HttpRequest(

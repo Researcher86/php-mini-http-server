@@ -66,4 +66,23 @@ final readonly class HttpRequest
     {
         return $this->headers->get($name);
     }
+
+    /**
+     * Whether the connection may be reused for the next request.
+     *
+     * HTTP/1.1 keeps connections alive unless the client explicitly asks
+     * for close; HTTP/1.0 closes unless the client explicitly asks for
+     * keep-alive. This is the "READ AGAIN" branch of the connection
+     * lifecycle.
+     */
+    public function wantsKeepAlive(): bool
+    {
+        $connection = strtolower($this->header('Connection') ?? '');
+
+        if ($this->version === HttpVersion::HTTP_1_0) {
+            return $connection === 'keep-alive';
+        }
+
+        return $connection !== 'close';
+    }
 }
