@@ -73,6 +73,35 @@ final class HttpParserTest extends TestCase
         $this->assertSame(strlen($first), $parsed->consumedBytes);
     }
 
+    public function testPipelinedRequestsAreParsedOneByOneFromOneBuffer(): void
+    {
+        $requests = [
+            "GET /one HTTP/1.1\r\n\r\n",
+            "POST /two HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc",
+            "GET /three HTTP/1.1\r\n\r\n",
+        ];
+
+        $buffer = implode('', $requests);
+        $paths = [];
+        $bodies = [];
+        $consumed = 0;
+
+        while ($buffer !== '') {
+            $parsed = $this->parser->parse($buffer);
+
+            $this->assertNotNull($parsed, 'expected a complete request in the buffer');
+
+            $paths[] = $parsed->request->path();
+            $bodies[] = $parsed->request->body;
+            $consumed += $parsed->consumedBytes;
+            $buffer = substr($buffer, $parsed->consumedBytes);
+        }
+
+        $this->assertSame(['/one', '/two', '/three'], $paths);
+        $this->assertSame(['', 'abc', ''], $bodies);
+        $this->assertSame(strlen(implode('', $requests)), $consumed);
+    }
+
     public function testParsesQueryStringIntoPathAndQuery(): void
     {
         $raw = "GET /users?page=2&filter=active HTTP/1.1\r\n\r\n";

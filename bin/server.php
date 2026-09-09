@@ -25,10 +25,11 @@ use App\Server\ServerStartException;
 require __DIR__ . '/../vendor/autoload.php';
 
 /**
- * Phases 5-14: raw TCP bytes become HttpRequest objects, the router picks
- * the handler, and the response is flushed through the WriteBuffer. After a
- * full response the connection either goes back to reading (keep-alive) or
- * closes, so many requests reuse one TCP connection.
+ * Phases 5-15: raw TCP bytes become HttpRequest objects, the router picks
+ * the handler, and responses flush through the WriteBuffer. One read may
+ * carry several pipelined requests — each is parsed and answered in order —
+ * and after the responses are written the connection either goes back to
+ * reading (keep-alive) or closes.
  */
 $host = getenv('HTTP_SERVER_HOST') ?: '127.0.0.1';
 $port = (int) (getenv('HTTP_SERVER_PORT') ?: '8080');
@@ -141,49 +142,63 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
         $connection->appendRead($data);
 
-        try {
-            $parsed = $parser->parse((string) $connection->readBuffer());
-        } catch (MalformedRequestException $e) {
-            // Phase 13: malformed bytes answer 400 instead of killing the
-            // connection without a word — but the socket is unusable after
-            // a garbage request, so close it right after flushing.
-            printf("[#%d] malformed request: %s\n", $connection->id, $e->getMessage());
+        $closeAfterDrain = false;
+        $queued = false;
 
-            $response = ResponseFactory::text('Bad Request' . PHP_EOL, HttpStatusCode::BAD_REQUEST);
+        // Phase 15: one read may carry several pipelined requests. Keep
+        // parsing while the buffer holds complete requests, queueing their
+        // responses in order; stop only when a request says "close" or
+        // there is simply nothing complete left to parse.
+        while (true) {
+            try {
+                $parsed = $parser->parse((string) $connection->readBuffer());
+            } catch (MalformedRequestException $e) {
+                printf("[#%d] malformed request: %s\n", $connection->id, $e->getMessage());
 
-            $connection->startWriting();
+                $connection->queueWrite($encoder->encode(
+                    ResponseFactory::text('Bad Request' . PHP_EOL, HttpStatusCode::BAD_REQUEST),
+                ));
+                $closeAfterDrain = true;
+                $queued = true;
+                break;
+            }
+
+            if ($parsed === null) {
+                break; // wait for more bytes
+            }
+
+            $connection->readBuffer()->consume($parsed->consumedBytes);
+
+            $request = $parsed->request;
+
+            $keepAlive = $request->wantsKeepAlive();
+            $response = $routerNotFound->handle($request);
+            $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
+
             $connection->queueWrite($encoder->encode($response));
-            $drain($loop, $connection, static function () use ($loop, $stream, $server, $connection): void {
-                $loop->removeReadable($stream);
-                $server->close($connection);
-            });
-            return;
+            $queued = true;
+
+            if (!$keepAlive) {
+                $closeAfterDrain = true;
+                break;
+            }
         }
 
-        if ($parsed === null) {
-            return; // wait for more bytes
+        if (!$queued) {
+            return; // nothing complete yet — wait for more bytes
         }
-
-        $connection->readBuffer()->consume($parsed->consumedBytes);
-
-        $request = $parsed->request;
-
-        $keepAlive = $request->wantsKeepAlive();
-        $response = $routerNotFound->handle($request);
-        $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
 
         $connection->startWriting();
-        $connection->queueWrite($encoder->encode($response));
 
-        // Phase 14: after the response is fully written the connection is
-        // free to read the next request (keep-alive) or must be torn down.
-        $drain($loop, $connection, $keepAlive
-            ? static function () use ($connection): void {
-                $connection->backToReading();
-            }
-            : static function () use ($loop, $stream, $server, $connection): void {
+        // Phase 14+15: after the queued responses are fully written the
+        // connection either goes back to reading (keep-alive) or closes.
+        $drain($loop, $connection, $closeAfterDrain
+            ? static function () use ($loop, $stream, $server, $connection): void {
                 $loop->removeReadable($stream);
                 $server->close($connection);
+            }
+            : static function () use ($connection): void {
+                $connection->backToReading();
             });
     });
 });
