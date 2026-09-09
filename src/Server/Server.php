@@ -135,6 +135,43 @@ final class Server
         return count($this->connections);
     }
 
+    /**
+     * Graceful shutdown step one: RUNNING → DRAINING.
+     *
+     * The listening socket closes so no new clients can connect, but the
+     * connections already accepted stay alive — in-flight requests finish,
+     * responses flush, and only then does the caller call finish().
+     */
+    public function drain(): void
+    {
+        if ($this->state !== ServerState::RUNNING) {
+            return;
+        }
+
+        if ($this->socket !== null) {
+            fclose($this->socket);
+            $this->socket = null;
+        }
+
+        $this->state = ServerState::DRAINING;
+    }
+
+    /**
+     * Graceful shutdown step two: close whatever connections are still open
+     * and land in STOPPED via FINISHING.
+     */
+    public function finish(): void
+    {
+        $this->state = ServerState::FINISHING;
+
+        foreach ($this->connections as $connection) {
+            $connection->close();
+        }
+
+        $this->connections = [];
+        $this->state = ServerState::STOPPED;
+    }
+
     public function stop(): void
     {
         foreach ($this->connections as $connection) {

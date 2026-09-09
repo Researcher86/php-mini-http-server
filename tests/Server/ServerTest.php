@@ -179,4 +179,46 @@ final class ServerTest extends TestCase
         fclose($clientA);
         fclose($clientB);
     }
+
+    public function testDrainStopsAcceptingAndFlipsToDraining(): void
+    {
+        $this->server->start();
+
+        $port = $this->server->getPort();
+        $client = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($client);
+        $connection = $this->server->accept();
+        $this->assertNotNull($connection);
+
+        $this->server->drain();
+
+        $this->assertSame(ServerState::DRAINING, $this->server->state());
+        $this->assertSame(1, $this->server->connectionCount(), 'existing connections survive draining');
+
+        // Listening socket is gone: nothing new can connect.
+        $late = @stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertFalse($late);
+
+        $this->server->finish();
+        fclose($client);
+    }
+
+    public function testFinishClosesRemainingConnectionsAndStops(): void
+    {
+        $this->server->start();
+
+        $port = $this->server->getPort();
+        $client = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($client);
+        $connection = $this->server->accept();
+        $this->assertNotNull($connection);
+
+        $this->server->drain();
+        $this->server->finish();
+
+        $this->assertSame(ServerState::STOPPED, $this->server->state());
+        $this->assertSame(0, $this->server->connectionCount());
+
+        fclose($client);
+    }
 }

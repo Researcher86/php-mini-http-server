@@ -103,8 +103,32 @@ $routerNotFound->add(new class implements MiddlewareInterface {
 });
 
 pcntl_async_signals(true);
-pcntl_signal(SIGINT, static fn () => $loop->stop());
-pcntl_signal(SIGTERM, static fn () => $loop->stop());
+
+/**
+ * Phase 19: RUNNING → DRAINING → FINISHING → STOPPED.
+ *
+ * First signal stops accepting new connections but lets active requests
+ * finish and flush. A second signal skips the waiting and forces the end.
+ */
+$listenStream = $server->socket();
+$draining = false;
+
+$onSignal = static function () use (&$draining, $loop, $server, $listenStream): void {
+    if ($draining) {
+        printf("[shutdown] forced\n");
+        $server->finish();
+        $loop->stop();
+        return;
+    }
+
+    $draining = true;
+    printf("[shutdown] draining: no new connections, finishing active requests\n");
+    $loop->removeReadable($listenStream);
+    $server->drain();
+};
+
+pcntl_signal(SIGINT, $onSignal);
+pcntl_signal(SIGTERM, $onSignal);
 
 /**
  * Phase 16+17: scheduled work alongside read/write events. The heartbeat
@@ -116,11 +140,18 @@ $loop->every(2.0, static function () use ($server): void {
     printf("[tick] %d active connection(s)\n", $server->connectionCount());
 });
 
-$loop->every(1.0, static function () use ($server): void {
+$loop->every(1.0, static function () use (&$draining, $loop, $server): void {
     $closed = $server->closeIdleConnections($server->config()->connectionTimeout);
 
     foreach ($closed as $connection) {
         printf("[#%d] closed: idle timeout\n", $connection->id);
+    }
+
+    // Phase 19: when draining and every connection is done, shut down.
+    if ($draining && $server->connectionCount() === 0) {
+        printf("[shutdown] all connections finished\n");
+        $server->finish();
+        $loop->stop();
     }
 });
 
