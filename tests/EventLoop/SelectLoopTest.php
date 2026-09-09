@@ -42,6 +42,7 @@ final class SelectLoopTest extends TestCase
         [$serverA, $clientA, $serverB, $clientB] = $this->twoPairs();
 
         $received = [];
+        /** @var array<string, string|false> $received */
         $loop = $this->loop;
 
         $this->loop->onReadable($serverA, function ($stream) use (&$received, $loop): void {
@@ -169,9 +170,12 @@ final class SelectLoopTest extends TestCase
     private function socketPair(): array
     {
         $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
-        $this->assertIsArray($pair);
 
-        return $pair;
+        if ($pair === false) {
+            $this->fail('cannot create socket pair');
+        }
+
+        return [$pair[0], $pair[1]];
     }
 
     /**

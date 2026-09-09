@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\Http\Handler\RequestHandler;
+use App\Http\Protocol\BodyTooLargeException;
+use App\Http\Protocol\HeaderTooLargeException;
 use App\Http\Protocol\MalformedRequestException;
 use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
@@ -24,6 +26,8 @@ use App\Router\RouteNotFoundException;
  *     400 Bad Request         malformed HTTP on the wire
  *     404 Not Found           no route for the request
  *     405 Method Not Allowed  path exists, method does not
+ *     413 Payload Too Large   declared/delivered body over the limit
+ *     431 Header Fields Too Large  header block over the limit
  *     500 Internal Server Error  anything else
  */
 final class ErrorHandlerMiddleware implements MiddlewareInterface
@@ -41,6 +45,10 @@ final class ErrorHandlerMiddleware implements MiddlewareInterface
             $response->headers->set('Allow', $e->allowedMethods());
 
             return $response;
+        } catch (HeaderTooLargeException) {
+            return $this->error(HttpStatusCode::HEADER_TOO_LARGE, 'Request Header Fields Too Large');
+        } catch (BodyTooLargeException) {
+            return $this->error(HttpStatusCode::PAYLOAD_TOO_LARGE, 'Payload Too Large');
         } catch (\Throwable) {
             return $this->error(HttpStatusCode::INTERNAL_SERVER_ERROR, 'Internal Server Error');
         }

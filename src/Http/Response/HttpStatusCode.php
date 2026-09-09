@@ -28,6 +28,7 @@ enum HttpStatusCode: int
     case PAYLOAD_TOO_LARGE = 413;
     case UNPROCESSABLE_ENTITY = 422;
     case TOO_MANY_REQUESTS = 429;
+    case HEADER_TOO_LARGE = 431;
     case INTERNAL_SERVER_ERROR = 500;
     case NOT_IMPLEMENTED = 501;
     case SERVICE_UNAVAILABLE = 503;
@@ -50,6 +51,7 @@ enum HttpStatusCode: int
             self::PAYLOAD_TOO_LARGE => 'Payload Too Large',
             self::UNPROCESSABLE_ENTITY => 'Unprocessable Entity',
             self::TOO_MANY_REQUESTS => 'Too Many Requests',
+            self::HEADER_TOO_LARGE => 'Request Header Fields Too Large',
             self::INTERNAL_SERVER_ERROR => 'Internal Server Error',
             self::NOT_IMPLEMENTED => 'Not Implemented',
             self::SERVICE_UNAVAILABLE => 'Service Unavailable',

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Http\Protocol;
 
+use App\Http\Protocol\BodyTooLargeException;
+use App\Http\Protocol\HeaderTooLargeException;
 use App\Http\Protocol\HttpMethod;
 use App\Http\Protocol\HttpParser;
 use App\Http\Protocol\HttpVersion;
@@ -152,5 +154,48 @@ final class HttpParserTest extends TestCase
     {
         $this->expectException(MalformedRequestException::class);
         $this->parser->parse("GET / HTTP/1.1\r\nHost missing\r\n\r\n");
+    }
+
+    public function testThrowsWhenIncompleteHeadersExceedTheLimit(): void
+    {
+        $small = new HttpParser(maxHeaderBytes: 32);
+        $filler = 'X-Pad: ' . str_repeat('a', 64);
+
+        $this->expectException(HeaderTooLargeException::class);
+        $small->parse("GET / HTTP/1.1\r\n$filler");
+    }
+
+    public function testThrowsWhenCompleteHeadersExceedTheLimit(): void
+    {
+        $small = new HttpParser(maxHeaderBytes: 32);
+        $filler = 'X-Pad: ' . str_repeat('a', 64);
+
+        $this->expectException(HeaderTooLargeException::class);
+        $small->parse("GET / HTTP/1.1\r\n$filler\r\n\r\n");
+    }
+
+    public function testThrowsWhenDeclaredBodyExceedsTheLimit(): void
+    {
+        $small = new HttpParser(maxBodyBytes: 10);
+
+        $this->expectException(BodyTooLargeException::class);
+        $small->parse("POST / HTTP/1.1\r\nContent-Length: 100\r\n\r\nbody");
+    }
+
+    public function testBodyAtTheLimitIsAccepted(): void
+    {
+        $tiny = new HttpParser(maxBodyBytes: 4);
+
+        $parsed = $tiny->parse("POST / HTTP/1.1\r\nContent-Length: 4\r\n\r\ndata");
+
+        $this->assertNotNull($parsed);
+        $this->assertSame('data', $parsed->request->body);
+    }
+
+    public function testHeaderBlockAtTheLimitIsAccepted(): void
+    {
+        $tiny = new HttpParser(maxHeaderBytes: 32);
+
+        $this->assertNotNull($tiny->parse("GET / HTTP/1.1\r\n\r\n"));
     }
 }

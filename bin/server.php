@@ -7,8 +7,12 @@ use App\EventLoop\SelectLoop;
 use App\Http\Handler\HelloHandler;
 use App\Http\Handler\RequestHandler;
 use App\Http\Middleware\ErrorHandlerMiddleware;
+use App\Http\Middleware\LoggingMiddleware;
 use App\Http\Middleware\MiddlewareInterface;
 use App\Http\Middleware\MiddlewarePipeline;
+use App\Http\Protocol\BodyTooLargeException;
+use App\Http\Protocol\HeaderTooLargeException;
+use App\Http\Protocol\HttpMethod;
 use App\Http\Protocol\HttpParser;
 use App\Http\Protocol\MalformedRequestException;
 use App\Http\Protocol\ResponseEncoder;
@@ -17,11 +21,11 @@ use App\Http\Response\HttpResponse;
 use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
 use App\Metrics\ServerMetrics;
-use App\Router\RouteNotFoundException;
 use App\Router\Router;
 use App\Server\Server;
 use App\Server\ServerConfig;
 use App\Server\ServerStartException;
+use App\Support\StderrLogger;
 
 require __DIR__ . '/../vendor/autoload.php';
 
@@ -42,7 +46,13 @@ $port = (int) (getenv('HTTP_SERVER_PORT') ?: '8080');
 
 // Short idle timeout for the demo: a connection that goes quiet for 5
 // seconds is reclaimed by the periodic sweep.
-$server = new Server(new ServerConfig(host: $host, port: $port, connectionTimeout: 5.0));
+$config = new ServerConfig(
+    host: $host,
+    port: $port,
+    connectionTimeout: 5.0,
+    headerTimeout: 5.0,
+);
+$server = new Server($config);
 
 try {
     $server->start();
@@ -51,10 +61,11 @@ try {
     exit(1);
 }
 
-$parser = new HttpParser();
+$parser = new HttpParser($config->maxHeaderBytes, $config->maxBodyBytes);
 $encoder = new ResponseEncoder();
 $router = new Router();
 $metrics = new ServerMetrics();
+$logger = new StderrLogger();
 $loop = new SelectLoop();
 
 $router->get('/', static fn (): HttpResponse => ResponseFactory::text('Hello, world!' . PHP_EOL));
@@ -97,18 +108,12 @@ $router->get('/metrics', static function () use ($metrics, $server): HttpRespons
  */
 $routerNotFound = new MiddlewarePipeline($router);
 
+// Logging is outermost so it sees the final status even for requests that
+// error — the error handler below converts the exception into a response
+// before it bubbles back to the logger.
+$routerNotFound->add(new LoggingMiddleware($logger));
+
 $routerNotFound->add(new ErrorHandlerMiddleware());
-
-$routerNotFound->add(new class implements MiddlewareInterface {
-    public function process(HttpRequest $request, RequestHandler $next): HttpResponse
-    {
-        printf("[%s %s] start\n", $request->method->value, $request->target);
-        $response = $next->handle($request);
-        printf("[%s %s] %d\n", $request->method->value, $request->target, $response->statusCode());
-
-        return $response;
-    }
-});
 
 $routerNotFound->add(new class implements MiddlewareInterface {
     public function process(HttpRequest $request, RequestHandler $next): HttpResponse
@@ -132,16 +137,16 @@ pcntl_async_signals(true);
 $listenStream = $server->socket();
 $draining = false;
 
-$onSignal = static function () use (&$draining, $loop, $server, $listenStream): void {
+$onSignal = static function () use (&$draining, $loop, $server, $listenStream, $logger): void {
     if ($draining) {
-        printf("[shutdown] forced\n");
+        $logger->log('shutdown forced');
         $server->finish();
         $loop->stop();
         return;
     }
 
     $draining = true;
-    printf("[shutdown] draining: no new connections, finishing active requests\n");
+    $logger->log('shutdown draining: no new connections, finishing active requests');
     $loop->removeReadable($listenStream);
     $server->drain();
 };
@@ -155,20 +160,28 @@ pcntl_signal(SIGTERM, $onSignal);
  * have been idle past the configured timeout, so dead clients do not hold a
  * socket forever.
  */
-$loop->every(2.0, static function () use ($server): void {
-    printf("[tick] %d active connection(s)\n", $server->connectionCount());
+$loop->every(2.0, static function () use ($server, $logger): void {
+    $logger->log(sprintf('tick: %d active connection(s)', $server->connectionCount()));
 });
 
-$loop->every(1.0, static function () use (&$draining, $loop, $server): void {
+$loop->every(1.0, static function () use (&$draining, $loop, $server, $logger): void {
     $closed = $server->closeIdleConnections($server->config()->connectionTimeout);
 
     foreach ($closed as $connection) {
-        printf("[#%d] closed: idle timeout\n", $connection->id);
+        $logger->log(sprintf('#%d closed: idle timeout', $connection->id));
+    }
+
+    // Slowloris guard: connections stuck mid-header past the header timeout
+    // are reaped even though they keep dribbling bytes.
+    $slow = $server->closeSlowHeaderReads($server->config()->headerTimeout);
+
+    foreach ($slow as $connection) {
+        $logger->log(sprintf('#%d closed: header timeout', $connection->id));
     }
 
     // Phase 19: when draining and every connection is done, shut down.
     if ($draining && $server->connectionCount() === 0) {
-        printf("[shutdown] all connections finished\n");
+        $logger->log('shutdown: all connections finished');
         $server->finish();
         $loop->stop();
     }
@@ -199,20 +212,20 @@ $drain = static function (SelectLoop $loop, Connection $connection, ?Closure $on
     });
 };
 
-$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $routerNotFound, $drain, $metrics): void {
+$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $routerNotFound, $drain, $metrics, $logger): void {
     $connection = $server->accept();
 
     if ($connection === null) {
         return;
     }
 
-    printf("[#%d] connected from %s\n", $connection->id, $connection->remoteAddress());
+    $logger->log(sprintf('#%d connected from %s', $connection->id, $connection->remoteAddress()));
 
     $connection->startReading();
 
     $onData = null;
 
-    $onData = static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $routerNotFound, $drain, $metrics, &$onData): void {
+    $onData = static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $routerNotFound, $drain, $metrics, $logger, &$onData): void {
         $data = fread($stream, 8192);
 
         if ($data === false || $data === '') { // EOF → client is gone
@@ -236,7 +249,7 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
             try {
                 $parsed = $parser->parse((string) $connection->readBuffer());
             } catch (MalformedRequestException $e) {
-                printf("[#%d] malformed request: %s\n", $connection->id, $e->getMessage());
+                $logger->log(sprintf('#%d malformed request: %s', $connection->id, $e->getMessage()));
 
                 $connection->queueWrite($encoder->encode(
                     ResponseFactory::text('Bad Request' . PHP_EOL, HttpStatusCode::BAD_REQUEST),
@@ -244,12 +257,35 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
                 $closeAfterDrain = true;
                 $queued = true;
                 break;
+            } catch (HeaderTooLargeException $e) {
+                $logger->log(sprintf('#%d header too large: %s', $connection->id, $e->getMessage()));
+
+                $connection->queueWrite($encoder->encode(
+                    ResponseFactory::text('Request Header Fields Too Large' . PHP_EOL, HttpStatusCode::HEADER_TOO_LARGE),
+                ));
+                $closeAfterDrain = true;
+                $queued = true;
+                break;
+            } catch (BodyTooLargeException $e) {
+                $logger->log(sprintf('#%d body too large: %s', $connection->id, $e->getMessage()));
+
+                $connection->queueWrite($encoder->encode(
+                    ResponseFactory::text('Payload Too Large' . PHP_EOL, HttpStatusCode::PAYLOAD_TOO_LARGE),
+                ));
+                $closeAfterDrain = true;
+                $queued = true;
+                break;
             }
 
             if ($parsed === null) {
+                // A complete request has not arrived yet — the header clock
+                // starts (or keeps running) so the Slowloris sweep can reap
+                // a connection that never finishes its headers.
+                $connection->noteWaitingForHeaders();
                 break; // wait for more bytes
             }
 
+            $connection->doneWaitingForHeaders();
             $connection->readBuffer()->consume($parsed->consumedBytes);
 
             $request = $parsed->request;
@@ -257,6 +293,18 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
             $keepAlive = $request->wantsKeepAlive();
             $response = $routerNotFound->handle($request);
+
+            // HEAD is GET without a body: keep the headers (Content-Length
+            // reflects the would-be GET body) but drop the body itself.
+            if ($request->method === HttpMethod::HEAD) {
+                $response = new HttpResponse(
+                    $response->version,
+                    $response->status,
+                    $response->headers,
+                    '',
+                );
+            }
+
             $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
 
             $metrics->recordRequest(microtime(true) - $startedAt);
@@ -287,13 +335,13 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
         if ($paused) {
             // Backpressure: stop accepting more data until the write buffer
             // has drained, then re-arm the reader.
-            printf("[#%d] write buffer at %d bytes — pausing reads\n", $connection->id, $connection->writeBufferLength());
+            $logger->log(sprintf('#%d write buffer at %d bytes — pausing reads', $connection->id, $connection->writeBufferLength()));
             $loop->removeReadable($stream);
 
-            $drain($loop, $connection, static function () use ($loop, $stream, $connection, &$onData): void {
+            $drain($loop, $connection, static function () use ($loop, $stream, $connection, $logger, &$onData): void {
                 $connection->backToReading();
                 $loop->onReadable($stream, $onData);
-                printf("[#%d] write buffer drained — resuming reads\n", $connection->id);
+                $logger->log(sprintf('#%d write buffer drained — resuming reads', $connection->id));
             });
             return;
         }

@@ -21,6 +21,22 @@ final class ResponseEncoderTest extends TestCase
         $this->encoder = new ResponseEncoder();
     }
 
+    public function testRejectsHeaderValueWithCrLf(): void
+    {
+        $headers = new Headers();
+        $headers->set('X-Injected', "value\r\nX-Evil: 1");
+
+        $response = new HttpResponse(
+            version: HttpVersion::HTTP_1_1,
+            status: HttpStatusCode::OK,
+            headers: $headers,
+            body: 'x',
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->encoder->encode($response);
+    }
+
     public function testEncodesStatusLineHeadersAndBody(): void
     {
         $raw = $this->encoder->encode(ResponseFactory::text('Hello'));

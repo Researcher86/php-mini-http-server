@@ -18,6 +18,9 @@ final readonly class ServerConfig
         public int $port = 8080,
         public int $backlog = 128,
         public float $connectionTimeout = 30.0,
+        public float $headerTimeout = 5.0,
+        public int $maxHeaderBytes = 8192,
+        public int $maxBodyBytes = 1_048_576,
     ) {
     }
 }

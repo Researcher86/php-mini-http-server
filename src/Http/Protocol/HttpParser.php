@@ -24,12 +24,34 @@ final class HttpParser
 {
     private const string HEADER_TERMINATOR = "\r\n\r\n";
 
+    public function __construct(
+        private readonly int $maxHeaderBytes = 8192,
+        private readonly int $maxBodyBytes = 1_048_576,
+    ) {
+    }
+
     public function parse(string $raw): ?ParsedRequest
     {
         $headerEnd = strpos($raw, self::HEADER_TERMINATOR);
 
         if ($headerEnd === false) {
+            // No terminator yet. Refuse to buffer an unbounded header block:
+            // this is the read-side memory guard against header floods.
+            if (strlen($raw) > $this->maxHeaderBytes) {
+                throw new HeaderTooLargeException(sprintf(
+                    'Header block exceeds %d bytes.',
+                    $this->maxHeaderBytes,
+                ));
+            }
+
             return null;
+        }
+
+        if ($headerEnd > $this->maxHeaderBytes) {
+            throw new HeaderTooLargeException(sprintf(
+                'Header block exceeds %d bytes.',
+                $this->maxHeaderBytes,
+            ));
         }
 
         $headEnd = $headerEnd + strlen(self::HEADER_TERMINATOR);
@@ -49,6 +71,14 @@ final class HttpParser
         }
 
         $contentLength = $this->contentLength($headers);
+
+        if ($contentLength > $this->maxBodyBytes) {
+            throw new BodyTooLargeException(sprintf(
+                'Content-Length %d exceeds the %d-byte body limit.',
+                $contentLength,
+                $this->maxBodyBytes,
+            ));
+        }
 
         $availableBody = strlen($raw) - $headEnd;
 

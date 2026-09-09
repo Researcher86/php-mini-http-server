@@ -5,6 +5,8 @@ declare(strict_types=1);
 use App\EventLoop\SelectLoop;
 use App\Http\Middleware\ErrorHandlerMiddleware;
 use App\Http\Middleware\MiddlewarePipeline;
+use App\Http\Protocol\BodyTooLargeException;
+use App\Http\Protocol\HeaderTooLargeException;
 use App\Http\Protocol\HttpParser;
 use App\Http\Protocol\MalformedRequestException;
 use App\Http\Protocol\ResponseEncoder;
@@ -43,7 +45,7 @@ if (isset($argv[2])) {
     $requestsPerConnection = (int) $argv[2];
 }
 
-[$parentPipe, $childPipe] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+[$parentPipe, $childPipe] = serverPair();
 
 $serverPid = pcntl_fork();
 
@@ -136,6 +138,16 @@ function runServer(mixed $parentPipe, mixed $childPipe): never
                         ResponseFactory::text('Bad Request' . PHP_EOL, HttpStatusCode::BAD_REQUEST),
                     ));
                     break;
+                } catch (HeaderTooLargeException) {
+                    $connection->queueWrite($encoder->encode(
+                        ResponseFactory::text('Request Header Fields Too Large' . PHP_EOL, HttpStatusCode::HEADER_TOO_LARGE),
+                    ));
+                    break;
+                } catch (BodyTooLargeException) {
+                    $connection->queueWrite($encoder->encode(
+                        ResponseFactory::text('Payload Too Large' . PHP_EOL, HttpStatusCode::PAYLOAD_TOO_LARGE),
+                    ));
+                    break;
                 }
 
                 if ($parsed === null) {
@@ -185,17 +197,25 @@ function runServer(mixed $parentPipe, mixed $childPipe): never
 function runLevel(int $port, int $concurrency, int $requests): array
 {
     $workers = [];
-    $started = microtime(true);
+
+    // A start gate: children wait for this file, so every worker begins at
+    // roughly the same instant and the elapsed time measures the request
+    // phase alone, not the (serial) fork storm.
+    $goFile = sys_get_temp_dir() . '/bench-go-' . getmypid() . '.go';
+    @unlink($goFile);
 
     for ($i = 0; $i < $concurrency; $i++) {
         $pid = pcntl_fork();
 
         if ($pid === 0) {
-            runClient($port, $requests);
+            runClient($port, $requests, $goFile);
         }
 
         $workers[] = $pid;
     }
+
+    $started = microtime(true);
+    file_put_contents($goFile, 'go');
 
     $latencies = [];
 
@@ -213,6 +233,7 @@ function runLevel(int $port, int $concurrency, int $requests): array
         }
     }
 
+    @unlink($goFile);
     $elapsed = microtime(true) - $started;
     $total = count($latencies);
 
@@ -241,9 +262,14 @@ function runLevel(int $port, int $concurrency, int $requests): array
 
 /**
  * One blocking keep-alive client: $requests sequential GETs, each timed.
+ * Waits on the start gate so all workers begin together.
  */
-function runClient(int $port, int $requests): never
+function runClient(int $port, int $requests, string $goFile): never
 {
+    while (!file_exists($goFile)) {
+        usleep(1000);
+    }
+
     $socket = stream_socket_client("tcp://127.0.0.1:$port", $errno, $errstr, 10);
 
     if ($socket === false) {
@@ -283,8 +309,25 @@ function runClient(int $port, int $requests): never
     }
 
     fclose($socket);
-    file_put_contents(latenciesFile(getmypid()), implode("\n", $lines) . "\n");
+    file_put_contents(latenciesFile((int) getmypid()), implode("\n", $lines) . "\n");
     exit(0);
+}
+
+/**
+ * A guaranteed-open socket pair, or the process cannot measure anything.
+ *
+ * @return array{0: resource, 1: resource}
+ */
+function serverPair(): array
+{
+    $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+
+    if ($pair === false) {
+        fwrite(STDERR, "cannot create socket pair\n");
+        exit(1);
+    }
+
+    return [$pair[0], $pair[1]];
 }
 
 /**

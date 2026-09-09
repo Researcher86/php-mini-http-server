@@ -64,6 +64,13 @@ final class Router implements RequestHandler
     public function dispatch(HttpRequest $request): HttpResponse
     {
         $method = $request->method->value;
+
+        // HEAD is GET without a response body: it answers from the GET
+        // routes, and the layer that builds the wire bytes omits the body.
+        if ($request->method === HttpMethod::HEAD) {
+            $method = HttpMethod::GET->value;
+        }
+
         $path = $request->path();
 
         $handler = $this->exact[$method][$path] ?? null;
@@ -137,7 +144,8 @@ final class Router implements RequestHandler
 
     /**
      * The methods that serve $path under some route (any pattern or exact
-     * route), so a 405 can name them in its Allow header.
+     * route), so a 405 can name them in its Allow header. HEAD is implied
+     * wherever GET is allowed.
      *
      * @return list<string>
      */
@@ -148,13 +156,26 @@ final class Router implements RequestHandler
         foreach (HttpMethod::cases() as $method) {
             $value = $method->value;
 
+            if ($value === HttpMethod::HEAD->value) {
+                continue; // HEAD rides on GET, listed below
+            }
+
             if (isset($this->exact[$value][$path])) {
                 $allowed[] = $value;
+
+                if ($value === HttpMethod::GET->value) {
+                    $allowed[] = HttpMethod::HEAD->value;
+                }
+
                 continue;
             }
 
             if ($this->matchPattern($value, $path) !== null) {
                 $allowed[] = $value;
+
+                if ($value === HttpMethod::GET->value) {
+                    $allowed[] = HttpMethod::HEAD->value;
+                }
             }
         }
 

@@ -36,6 +36,17 @@ final class ResponseEncoder
         $head = $statusLine;
 
         foreach ($headers as $name => $value) {
+            // Response splitting guard: a header value is a single line on
+            // the wire, so CR/LF smuggled in by a handler must never reach
+            // it. The error handler turns this into a 500.
+            if (str_contains($name, "\r") || str_contains($name, "\n")
+                || str_contains($value, "\r") || str_contains($value, "\n")) {
+                throw new \RuntimeException(sprintf(
+                    'Header name or value contains CR/LF: %s',
+                    $name,
+                ));
+            }
+
             $head .= sprintf("%s: %s\r\n", $name, $value);
         }
 

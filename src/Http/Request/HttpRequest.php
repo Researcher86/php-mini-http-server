@@ -46,7 +46,7 @@ final readonly class HttpRequest
     }
 
     /**
-     * @return array<string, string> query string parsed with parse_str()
+     * @return array<int|string, mixed> query string parsed with parse_str()
      */
     public function query(): array
     {

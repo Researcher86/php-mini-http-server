@@ -7,6 +7,8 @@ namespace App\Tests\Http\Middleware;
 use App\Http\Handler\RequestHandler;
 use App\Http\Headers\Headers;
 use App\Http\Middleware\ErrorHandlerMiddleware;
+use App\Http\Protocol\BodyTooLargeException;
+use App\Http\Protocol\HeaderTooLargeException;
 use App\Http\Protocol\HttpMethod;
 use App\Http\Protocol\HttpVersion;
 use App\Http\Protocol\MalformedRequestException;
@@ -54,6 +56,26 @@ final class ErrorHandlerMiddlewareTest extends TestCase
         });
 
         $this->assertSame(400, $response->statusCode());
+    }
+
+    public function testMapsHeaderTooLargeTo431(): void
+    {
+        $response = $this->handle(static function (HttpRequest $r): HttpResponse {
+            throw new HeaderTooLargeException('too many headers');
+        });
+
+        $this->assertSame(431, $response->statusCode());
+        $this->assertSame("Request Header Fields Too Large\n", $response->body);
+    }
+
+    public function testMapsBodyTooLargeTo413(): void
+    {
+        $response = $this->handle(static function (HttpRequest $r): HttpResponse {
+            throw new BodyTooLargeException('too big');
+        });
+
+        $this->assertSame(413, $response->statusCode());
+        $this->assertSame("Payload Too Large\n", $response->body);
     }
 
     public function testMapsUnknownExceptionTo500(): void

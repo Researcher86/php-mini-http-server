@@ -66,7 +66,9 @@ final class ServerTest extends TestCase
         $port = $this->server->getPort();
 
         $clientA = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($clientA);
         $clientB = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($clientB);
 
         $a = $this->server->accept();
         $b = $this->server->accept();
@@ -125,6 +127,7 @@ final class ServerTest extends TestCase
         $port = $this->server->getPort();
 
         $client = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($client);
         $connection = $this->server->accept();
         $this->assertNotNull($connection);
 
@@ -143,6 +146,7 @@ final class ServerTest extends TestCase
         $port = $this->server->getPort();
 
         $client = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($client);
         $connection = $this->server->accept();
         $this->assertNotNull($connection);
 
@@ -164,7 +168,9 @@ final class ServerTest extends TestCase
         $port = $this->server->getPort();
 
         $clientA = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($clientA);
         $clientB = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($clientB);
 
         $a = $this->server->accept();
         $b = $this->server->accept();
@@ -219,6 +225,47 @@ final class ServerTest extends TestCase
         $this->assertSame(ServerState::STOPPED, $this->server->state());
         $this->assertSame(0, $this->server->connectionCount());
 
+        fclose($client);
+    }
+
+    public function testCloseSlowHeaderReadsReapsMidHeaderConnections(): void
+    {
+        $this->server->start();
+
+        $port = $this->server->getPort();
+        $client = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($client);
+        $connection = $this->server->accept();
+        $this->assertNotNull($connection);
+
+        $connection->noteWaitingForHeaders();
+
+        $closed = $this->server->closeSlowHeaderReads(5.0, now: $connection->waitingForHeadersSince() + 10.0);
+
+        $this->assertSame([$connection], $closed);
+        $this->assertSame(0, $this->server->connectionCount());
+
+        fclose($client);
+    }
+
+    public function testCloseSlowHeaderReadsLeavesHealthyConnectionsAlone(): void
+    {
+        $this->server->start();
+
+        $port = $this->server->getPort();
+        $client = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($client);
+        $connection = $this->server->accept();
+        $this->assertNotNull($connection);
+        $connection->noteWaitingForHeaders();
+        $connection->doneWaitingForHeaders();
+
+        $closed = $this->server->closeSlowHeaderReads(1.0, now: microtime(true) + 100.0);
+
+        $this->assertSame([], $closed);
+        $this->assertSame(1, $this->server->connectionCount());
+
+        $this->server->close($connection);
         fclose($client);
     }
 }

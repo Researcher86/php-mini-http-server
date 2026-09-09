@@ -119,6 +119,24 @@ final class ConnectionTest extends TestCase
         $this->assertTrue($this->connection->hasBufferedMoreThan(0));
     }
 
+    public function testHeaderWaitClockStartsOnceAndResets(): void
+    {
+        $this->assertSame(0.0, $this->connection->waitingForHeadersSince());
+
+        $this->connection->noteWaitingForHeaders();
+        $since = $this->connection->waitingForHeadersSince();
+        $this->assertGreaterThan(0.0, $since);
+
+        // A second note does not restart the clock — dribbling bytes must
+        // not reset the Slowloris deadline.
+        usleep(1000);
+        $this->connection->noteWaitingForHeaders();
+        $this->assertSame($since, $this->connection->waitingForHeadersSince());
+
+        $this->connection->doneWaitingForHeaders();
+        $this->assertSame(0.0, $this->connection->waitingForHeadersSince());
+    }
+
     public function testCloseFreesTheSocket(): void
     {
         $this->connection->close();

@@ -79,7 +79,7 @@ final class RouterTest extends TestCase
             $this->router->dispatch($this->request('/hello', HttpMethod::POST));
             $this->fail('Expected MethodNotAllowedException');
         } catch (MethodNotAllowedException $e) {
-            $this->assertSame('GET', $e->allowedMethods());
+            $this->assertSame('GET, HEAD', $e->allowedMethods());
         }
     }
 
@@ -92,8 +92,32 @@ final class RouterTest extends TestCase
             $this->router->dispatch($this->request('/users/42', HttpMethod::POST));
             $this->fail('Expected MethodNotAllowedException');
         } catch (MethodNotAllowedException $e) {
-            $this->assertSame(['GET', 'DELETE'], $e->allowed);
+            $this->assertSame(['GET', 'HEAD', 'DELETE'], $e->allowed);
         }
+    }
+
+    public function testHeadFallsBackToGetRoute(): void
+    {
+        $this->router->get('/hello', static fn (HttpRequest $r): HttpResponse => ResponseFactory::text('hi'));
+
+        $response = $this->router->dispatch($this->request('/hello', HttpMethod::HEAD));
+
+        $this->assertSame('hi', $response->body);
+    }
+
+    public function testHeadFallsBackToGetPatternRoute(): void
+    {
+        $this->router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::text('u' . $params['id']));
+
+        $this->assertSame('u7', $this->router->dispatch($this->request('/users/7', HttpMethod::HEAD))->body);
+    }
+
+    public function testHeadOnUnknownPathStill404(): void
+    {
+        $this->router->get('/hello', static fn (HttpRequest $r): HttpResponse => ResponseFactory::empty());
+
+        $this->expectException(RouteNotFoundException::class);
+        $this->router->dispatch($this->request('/nope', HttpMethod::HEAD));
     }
 
     public function testQueryStringDoesNotAffectMatching(): void
@@ -175,6 +199,12 @@ final class RouterTest extends TestCase
         $this->router->get('/users', static fn (HttpRequest $r): HttpResponse => ResponseFactory::empty());
 
         $this->assertSame(2, $this->router->count());
+    }
+
+    public function testDuplicateParameterNamesAreRejectedAtRegistration(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->router->get('/pairs/{id}/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::empty());
     }
 
     private function request(string $target, HttpMethod $method = HttpMethod::GET): HttpRequest

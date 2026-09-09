@@ -306,7 +306,7 @@ final class SelectLoop implements EventLoop
             $timer->fire();
 
             if ($timer->isPeriodic()) {
-                $timer->reschedule();
+                $timer->reschedule($now);
             } else {
                 unset($this->timers[$id]);
             }

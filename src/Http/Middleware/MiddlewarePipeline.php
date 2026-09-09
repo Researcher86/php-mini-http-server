@@ -25,6 +25,8 @@ final class MiddlewarePipeline implements RequestHandler
     /** @var list<MiddlewareInterface> */
     private array $middleware = [];
 
+    private ?RequestHandler $chain = null;
+
     public function __construct(
         private RequestHandler $finalHandler,
     ) {
@@ -33,14 +35,29 @@ final class MiddlewarePipeline implements RequestHandler
     public function add(MiddlewareInterface $middleware): void
     {
         $this->middleware[] = $middleware;
+        $this->chain = null; // the composed chain must be rebuilt
     }
 
     /**
-     * Build the chain once per request (cheap: middleware lists are tiny) and
-     * hand the request through it.
+     * The chain is composed once and reused: middleware lists are static in
+     * practice, and rebuilding closures per request is pure hot-path waste.
      */
     public function handle(HttpRequest $request): HttpResponse
     {
+        return $this->buildChain()->handle($request);
+    }
+
+    public function count(): int
+    {
+        return count($this->middleware);
+    }
+
+    private function buildChain(): RequestHandler
+    {
+        if ($this->chain !== null) {
+            return $this->chain;
+        }
+
         $next = new DelegateRequestHandler($this->finalHandler->handle(...));
 
         foreach (array_reverse($this->middleware) as $middleware) {
@@ -51,11 +68,6 @@ final class MiddlewarePipeline implements RequestHandler
             );
         }
 
-        return $next->handle($request);
-    }
-
-    public function count(): int
-    {
-        return count($this->middleware);
+        return $this->chain = $next;
     }
 }

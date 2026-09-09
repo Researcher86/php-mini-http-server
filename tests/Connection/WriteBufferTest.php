@@ -115,8 +115,11 @@ final class WriteBufferTest extends TestCase
     private function socketPair(): array
     {
         $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
-        $this->assertIsArray($pair);
 
-        return $pair;
+        if ($pair === false) {
+            $this->fail('cannot create socket pair');
+        }
+
+        return [$pair[0], $pair[1]];
     }
 }

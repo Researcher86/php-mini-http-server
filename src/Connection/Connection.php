@@ -35,6 +35,9 @@ final class Connection
 
     private float $lastActivityAt;
 
+    /** 0.0 when not mid-header; otherwise when the current header block started */
+    private float $waitingForHeadersSince = 0.0;
+
     public function __construct(
         public readonly int $id,
         private readonly mixed $socket,
@@ -126,6 +129,37 @@ final class Connection
     public function lastActivityAt(): float
     {
         return $this->lastActivityAt;
+    }
+
+    /**
+     * The connection is now waiting for the rest of a request header block.
+     *
+     * The Slowloris guard keys off this instant: a client may keep the idle
+     * sweep happy by dribbling bytes, but it cannot keep the header-read
+     * deadline at bay forever.
+     */
+    public function noteWaitingForHeaders(): void
+    {
+        if ($this->waitingForHeadersSince === 0.0) {
+            $this->waitingForHeadersSince = microtime(true);
+        }
+    }
+
+    /**
+     * A complete request was parsed — the header wait is over.
+     */
+    public function doneWaitingForHeaders(): void
+    {
+        $this->waitingForHeadersSince = 0.0;
+    }
+
+    /**
+     * When the current header block started arriving, or 0.0 when the
+     * connection is not mid-header.
+     */
+    public function waitingForHeadersSince(): float
+    {
+        return $this->waitingForHeadersSince;
     }
 
     public function bytesRead(): int

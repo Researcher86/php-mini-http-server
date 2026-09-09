@@ -42,11 +42,19 @@ final class Server
     {
         $address = sprintf('tcp://%s:%d', $this->config->host, $this->config->port);
 
+        // The backlog config is honoured through the socket context: without
+        // it the kernel default (often small) applies, which would drop
+        // pending connections under a connection burst.
+        $context = stream_context_create([
+            'socket' => ['backlog' => $this->config->backlog],
+        ]);
+
         $socket = @stream_socket_server(
             $address,
             $errno,
             $errstr,
             STREAM_SERVER_BIND | STREAM_SERVER_LISTEN,
+            $context,
         );
 
         if ($socket === false) {
@@ -108,6 +116,33 @@ final class Server
 
         foreach ($this->connections as $connection) {
             if ($now - $connection->lastActivityAt() > $idleSeconds) {
+                $this->close($connection);
+                $closed[] = $connection;
+            }
+        }
+
+        return $closed;
+    }
+
+    /**
+     * Close every connection whose request headers have been arriving too
+     * slowly to ever complete — the Slowloris guard.
+     *
+     * A trickling client stays alive under the idle sweep (it sends bytes),
+     * but it never finishes a header block; this sweep bounds how long a
+     * connection may sit mid-header.
+     *
+     * @return list<Connection> the connections that were closed
+     */
+    public function closeSlowHeaderReads(float $timeoutSeconds, ?float $now = null): array
+    {
+        $now ??= microtime(true);
+        $closed = [];
+
+        foreach ($this->connections as $connection) {
+            $since = $connection->waitingForHeadersSince();
+
+            if ($since > 0.0 && $now - $since > $timeoutSeconds) {
                 $this->close($connection);
                 $closed[] = $connection;
             }
