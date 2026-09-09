@@ -416,7 +416,7 @@ Raw TCP data becomes an HTTP Request object.
 
 ---
 
-# Phase 6 — HTTP Response
+# Phase 6 — HTTP Response  ✅
 
 ## Goal
 
@@ -467,7 +467,7 @@ The application can create HTTP responses.
 
 ---
 
-# Phase 7 — HTTP Response Encoder
+# Phase 7 — HTTP Response Encoder  ✅
 
 ## Goal
 
@@ -513,7 +513,7 @@ Responses can be sent through a TCP connection.
 
 ---
 
-# Phase 8 — Write Buffers
+# Phase 8 — Write Buffers  ✅
 
 ## Goal
 
@@ -561,7 +561,7 @@ Large responses work correctly.
 
 ---
 
-# Phase 9 — Router
+# Phase 9 — Router  ✅
 
 ## Goal
 
@@ -617,7 +617,7 @@ Different URLs execute different handlers.
 
 ---
 
-# Phase 10 — Route Parameters
+# Phase 10 — Route Parameters  ✅
 
 ## Goal
 
@@ -665,7 +665,7 @@ The Router supports dynamic routes.
 
 ---
 
-# Phase 11 — Middleware
+# Phase 11 — Middleware  ✅
 
 ## Goal
 
@@ -730,7 +730,7 @@ Requests pass through a middleware pipeline.
 
 ---
 
-# Phase 12 — Request Handler
+# Phase 12 — Request Handler  ✅
 
 ## Goal
 
@@ -764,7 +764,7 @@ Application code is separated from the server runtime.
 
 ---
 
-# Phase 13 — Error Handling
+# Phase 13 — Error Handling  ✅
 
 ## Goal
 
@@ -802,7 +802,7 @@ One failed request does not stop the server.
 
 ---
 
-# Phase 14 — Keep-Alive
+# Phase 14 — Keep-Alive  ✅
 
 ## Goal
 
@@ -884,7 +884,7 @@ Multiple requests can use one connection.
 
 ---
 
-# Phase 15 — HTTP Pipelining
+# Phase 15 — HTTP Pipelining  ✅
 
 ## Goal
 
@@ -930,7 +930,7 @@ The parser correctly handles multiple buffered requests.
 
 ---
 
-# Phase 16 — Timers
+# Phase 16 — Timers  ✅
 
 ## Goal
 
@@ -962,7 +962,7 @@ The server can detect inactive connections.
 
 ---
 
-# Phase 17 — Connection Timeout
+# Phase 17 — Connection Timeout  ✅
 
 ## Goal
 
@@ -1002,7 +1002,7 @@ Dead connections do not remain forever.
 
 ---
 
-# Phase 18 — Backpressure
+# Phase 18 — Backpressure  ✅
 
 ## Goal
 
@@ -1050,7 +1050,7 @@ The server protects itself from slow clients.
 
 ---
 
-# Phase 19 — Graceful Shutdown
+# Phase 19 — Graceful Shutdown  ✅
 
 ## Goal
 
@@ -1092,7 +1092,7 @@ The server supports graceful shutdown.
 
 ---
 
-# Phase 20 — Metrics
+# Phase 20 — Metrics  ✅
 
 ## Goal
 
@@ -1126,7 +1126,7 @@ Basic observability.
 
 ---
 
-# Phase 21 — Benchmarks
+# Phase 21 — Benchmarks  ✅
 
 ## Goal
 
