@@ -178,6 +178,15 @@ final class Connection
     }
 
     /**
+     * True when more than $bytes are queued for this connection — the
+     * backpressure signal a slow client triggers (Phase 18).
+     */
+    public function hasBufferedMoreThan(int $bytes): bool
+    {
+        return $this->writeBuffer->length() > $bytes;
+    }
+
+    /**
      * Attempt a flush of the write buffer to the socket; bytes not accepted
      * stay queued for the next writable event.
      *

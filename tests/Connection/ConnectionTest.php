@@ -110,6 +110,15 @@ final class ConnectionTest extends TestCase
         $this->connection->queueWrite('data');
     }
 
+    public function testWriteBufferReportsBackpressureSignal(): void
+    {
+        $this->connection->queueWrite(str_repeat('a', 10));
+
+        $this->assertFalse($this->connection->hasBufferedMoreThan(10));
+        $this->assertTrue($this->connection->hasBufferedMoreThan(9));
+        $this->assertTrue($this->connection->hasBufferedMoreThan(0));
+    }
+
     public function testCloseFreesTheSocket(): void
     {
         $this->connection->close();

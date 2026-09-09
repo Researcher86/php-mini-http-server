@@ -25,6 +25,12 @@ use App\Server\ServerStartException;
 require __DIR__ . '/../vendor/autoload.php';
 
 /**
+ * Phase 18: once a connection's queued responses exceed this many bytes we
+ * stop reading from that client until the write buffer drains back down.
+ */
+const MAX_BUFFERED_RESPONSE_BYTES = 65536;
+
+/**
  * Phases 5-16: raw TCP bytes become HttpRequest objects, the router picks
  * the handler, and responses flush through the WriteBuffer. One read may
  * carry several pipelined requests — each is parsed and answered in order —
@@ -58,6 +64,10 @@ $router->post('/users', static fn (HttpRequest $r): HttpResponse => ResponseFact
 $router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::json([
     'id' => $params['id'],
 ]));
+
+// A deliberately large body so the Phase 18 backpressure demo has something
+// to overflow the write buffer with.
+$router->get('/big', static fn (): HttpResponse => ResponseFactory::text(str_repeat('x', 32_768)));
 
 /**
  * Phase 11+13: the request travels through a middleware pipeline before the
@@ -150,7 +160,9 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
     $connection->startReading();
 
-    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $routerNotFound, $drain): void {
+    $onData = null;
+
+    $onData = static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $routerNotFound, $drain, &$onData): void {
         $data = fread($stream, 8192);
 
         if ($data === false || $data === '') { // EOF → client is gone
@@ -163,11 +175,12 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
         $closeAfterDrain = false;
         $queued = false;
+        $paused = false;
 
         // Phase 15: one read may carry several pipelined requests. Keep
         // parsing while the buffer holds complete requests, queueing their
-        // responses in order; stop only when a request says "close" or
-        // there is simply nothing complete left to parse.
+        // responses in order; stop only when a request says "close", there
+        // is nothing complete left, or the write buffer hits the ceiling.
         while (true) {
             try {
                 $parsed = $parser->parse((string) $connection->readBuffer());
@@ -201,6 +214,14 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
                 $closeAfterDrain = true;
                 break;
             }
+
+            // Phase 18: a slow client lets the write buffer grow. Past the
+            // ceiling we stop pulling more requests off the socket — reading
+            // pauses until the buffer drains below it, then resumes.
+            if ($connection->hasBufferedMoreThan(MAX_BUFFERED_RESPONSE_BYTES)) {
+                $paused = true;
+                break;
+            }
         }
 
         if (!$queued) {
@@ -208,6 +229,20 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
         }
 
         $connection->startWriting();
+
+        if ($paused) {
+            // Backpressure: stop accepting more data until the write buffer
+            // has drained, then re-arm the reader.
+            printf("[#%d] write buffer at %d bytes — pausing reads\n", $connection->id, $connection->writeBufferLength());
+            $loop->removeReadable($stream);
+
+            $drain($loop, $connection, static function () use ($loop, $stream, $connection, &$onData): void {
+                $connection->backToReading();
+                $loop->onReadable($stream, $onData);
+                printf("[#%d] write buffer drained — resuming reads\n", $connection->id);
+            });
+            return;
+        }
 
         // Phase 14+15: after the queued responses are fully written the
         // connection either goes back to reading (keep-alive) or closes.
@@ -219,7 +254,9 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
             : static function () use ($connection): void {
                 $connection->backToReading();
             });
-    });
+    };
+
+    $loop->onReadable($connection->socket(), $onData);
 });
 
 printf("Listening on tcp://%s:%d\n", $server->getHost(), $server->getPort());
