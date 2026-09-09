@@ -7,7 +7,12 @@ use App\EventLoop\SelectLoop;
 use App\Http\Protocol\HttpParser;
 use App\Http\Protocol\MalformedRequestException;
 use App\Http\Protocol\ResponseEncoder;
+use App\Http\Request\HttpRequest;
+use App\Http\Response\HttpResponse;
+use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
+use App\Router\RouteNotFoundException;
+use App\Router\Router;
 use App\Server\Server;
 use App\Server\ServerConfig;
 use App\Server\ServerStartException;
@@ -15,9 +20,9 @@ use App\Server\ServerStartException;
 require __DIR__ . '/../vendor/autoload.php';
 
 /**
- * Phases 5-8: raw TCP bytes become HttpRequest objects, and the response is
- * queued and flushed through the connection's WriteBuffer, surviving partial
- * socket writes.
+ * Phases 5-9: raw TCP bytes become HttpRequest objects, the router picks the
+ * handler, and the response is queued and flushed through the connection's
+ * WriteBuffer, surviving partial socket writes.
  *
  * A request is parsed out of the read buffer, the matching response is
  * queued, and a writable watcher drains the write buffer until it is empty.
@@ -39,7 +44,17 @@ try {
 
 $parser = new HttpParser();
 $encoder = new ResponseEncoder();
+$router = new Router();
 $loop = new SelectLoop();
+
+$router->get('/', static fn (): HttpResponse => ResponseFactory::text('Hello, world!' . PHP_EOL));
+$router->get('/hello', static fn (HttpRequest $r): HttpResponse => ResponseFactory::text(
+    sprintf("Hello, %s!\n", $r->query()['name'] ?? 'world'),
+));
+$router->post('/users', static fn (HttpRequest $r): HttpResponse => ResponseFactory::json(
+    ['received' => $r->body],
+    HttpStatusCode::CREATED,
+));
 
 pcntl_async_signals(true);
 pcntl_signal(SIGINT, static fn () => $loop->stop());
@@ -60,7 +75,7 @@ $flush = static function (SelectLoop $loop, Connection $connection): void {
     }
 };
 
-$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $flush): void {
+$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $router, $flush): void {
     $connection = $server->accept();
 
     if ($connection === null) {
@@ -71,7 +86,7 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
     $connection->startReading();
 
-    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $flush): void {
+    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $router, $flush): void {
         $data = fread($stream, 8192);
 
         if ($data === false || $data === '') { // EOF → client is gone
@@ -100,13 +115,11 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
         $request = $parsed->request;
         printf("[#%d] %s %s\n", $connection->id, $request->method->value, $request->target);
 
-        $response = ResponseFactory::text(sprintf(
-            "Parsed %s %s (headers: %d, body: %d bytes)\n",
-            $request->method->value,
-            $request->target,
-            $request->headers->count(),
-            strlen($request->body),
-        ));
+        try {
+            $response = $router->dispatch($request);
+        } catch (RouteNotFoundException) {
+            $response = ResponseFactory::text('Not Found' . PHP_EOL, HttpStatusCode::NOT_FOUND);
+        }
 
         $connection->startWriting();
         $connection->queueWrite($encoder->encode($response));
