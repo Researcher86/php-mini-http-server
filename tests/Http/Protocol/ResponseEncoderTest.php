@@ -1,0 +1,78 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Tests\Http\Protocol;
+
+use App\Http\Headers\Headers;
+use App\Http\Protocol\HttpVersion;
+use App\Http\Protocol\ResponseEncoder;
+use App\Http\Response\HttpResponse;
+use App\Http\Response\HttpStatusCode;
+use App\Http\Response\ResponseFactory;
+use PHPUnit\Framework\TestCase;
+
+final class ResponseEncoderTest extends TestCase
+{
+    private ResponseEncoder $encoder;
+
+    protected function setUp(): void
+    {
+        $this->encoder = new ResponseEncoder();
+    }
+
+    public function testEncodesStatusLineHeadersAndBody(): void
+    {
+        $raw = $this->encoder->encode(ResponseFactory::text('Hello'));
+
+        $expected = "HTTP/1.1 200 OK\r\n"
+            . "Content-Type: text/plain; charset=utf-8\r\n"
+            . "Content-Length: 5\r\n"
+            . "\r\n"
+            . 'Hello';
+
+        $this->assertSame($expected, $raw);
+    }
+
+    public function testUsesGivenStatusCodeAndReason(): void
+    {
+        $raw = $this->encoder->encode(ResponseFactory::json(['e' => true], 404));
+
+        $this->assertStringStartsWith("HTTP/1.1 404 Not Found\r\n", $raw);
+    }
+
+    public function testAddsContentLengthWhenMissing(): void
+    {
+        $headers = new Headers();
+        $headers->set('X-Custom', 'yes');
+
+        $response = new HttpResponse(
+            version: HttpVersion::HTTP_1_1,
+            status: HttpStatusCode::OK,
+            headers: $headers,
+            body: 'abc',
+        );
+
+        $raw = $this->encoder->encode($response);
+
+        $this->assertStringContainsString("Content-Length: 3\r\n", $raw);
+        $this->assertSame('abc', substr($raw, strlen($raw) - 3));
+    }
+
+    public function testEmptyResponseHasNoBody(): void
+    {
+        $raw = $this->encoder->encode(ResponseFactory::empty());
+
+        $this->assertSame("HTTP/1.1 200 OK\r\n\r\n", $raw);
+    }
+
+    public function testEncodedResponseParsesBackIntoExpectedShape(): void
+    {
+        $raw = $this->encoder->encode(ResponseFactory::text('Hello'));
+
+        $this->assertStringStartsWith("HTTP/1.1 200 OK\r\n", $raw);
+        $this->assertStringContainsString("Content-Type: text/plain; charset=utf-8\r\n", $raw);
+        $this->assertStringContainsString("Content-Length: 5\r\n", $raw);
+        $this->assertStringEndsWith("\r\n\r\nHello", $raw);
+    }
+}

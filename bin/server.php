@@ -5,6 +5,8 @@ declare(strict_types=1);
 use App\EventLoop\SelectLoop;
 use App\Http\Protocol\HttpParser;
 use App\Http\Protocol\MalformedRequestException;
+use App\Http\Protocol\ResponseEncoder;
+use App\Http\Response\ResponseFactory;
 use App\Server\Server;
 use App\Server\ServerConfig;
 use App\Server\ServerStartException;
@@ -32,13 +34,14 @@ try {
 }
 
 $parser = new HttpParser();
+$encoder = new ResponseEncoder();
 $loop = new SelectLoop();
 
 pcntl_async_signals(true);
 pcntl_signal(SIGINT, static fn () => $loop->stop());
 pcntl_signal(SIGTERM, static fn () => $loop->stop());
 
-$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser): void {
+$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder): void {
     $connection = $server->accept();
 
     if ($connection === null) {
@@ -49,7 +52,7 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
     $connection->startReading();
 
-    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser): void {
+    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder): void {
         $data = fread($stream, 8192);
 
         if ($data === false || $data === '') { // EOF → client is gone
@@ -78,14 +81,16 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
         $request = $parsed->request;
         printf("[#%d] %s %s\n", $connection->id, $request->method->value, $request->target);
 
-        $connection->startWriting();
-        fwrite($stream, sprintf(
+        $response = ResponseFactory::text(sprintf(
             "Parsed %s %s (headers: %d, body: %d bytes)\n",
             $request->method->value,
             $request->target,
             $request->headers->count(),
             strlen($request->body),
         ));
+
+        $connection->startWriting();
+        fwrite($stream, $encoder->encode($response));
 
         $loop->removeReadable($stream);
         $server->close($connection);
