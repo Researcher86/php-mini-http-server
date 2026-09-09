@@ -1,7 +1,7 @@
 services:
   php:
     build: .
-    container_name: php-worker-pool
+    container_name: php-mini-http-server
     working_dir: /app
     volumes:
       - .:/app
