@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Router;
 
 use Closure;
+use App\Http\Handler\RequestHandler;
 use App\Http\Protocol\HttpMethod;
 use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
@@ -19,7 +20,7 @@ use App\Http\Response\HttpResponse;
  * parameters, so routing stays a pure lookup: no body parsing, no
  * middleware, no error handling — each of those is a later phase.
  */
-final class Router
+final class Router implements RequestHandler
 {
     /** @var array<string, array<string, Closure(HttpRequest, array<string, string>): HttpResponse>> */
     private array $exact = [];
@@ -100,6 +101,15 @@ final class Router
         }
 
         return $total;
+    }
+
+    /**
+     * Router as a RequestHandler: dispatch is the terminal link of any
+     * middleware pipeline that wants the router underneath.
+     */
+    public function handle(HttpRequest $request): HttpResponse
+    {
+        return $this->dispatch($request);
     }
 
     /**

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 use App\Connection\Connection;
 use App\EventLoop\SelectLoop;
+use App\Http\Handler\RequestHandler;
+use App\Http\Middleware\MiddlewareInterface;
+use App\Http\Middleware\MiddlewarePipeline;
 use App\Http\Protocol\HttpParser;
 use App\Http\Protocol\MalformedRequestException;
 use App\Http\Protocol\ResponseEncoder;
@@ -59,6 +62,47 @@ $router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpRespo
     'id' => $params['id'],
 ]));
 
+/**
+ * Phase 11: the request travels through a middleware pipeline before the
+ * router sees it. The logging middleware runs before and after the router;
+ * the timing middleware stamps the response with how long the whole chain
+ * took, and turns missing routes into 404 responses on the way back out.
+ */
+$routerNotFound = new MiddlewarePipeline($router);
+
+$routerNotFound->add(new class implements MiddlewareInterface {
+    public function process(HttpRequest $request, RequestHandler $next): HttpResponse
+    {
+        printf("[%s %s] start\n", $request->method->value, $request->target);
+        $response = $next->handle($request);
+        printf("[%s %s] %d\n", $request->method->value, $request->target, $response->statusCode());
+
+        return $response;
+    }
+});
+
+$routerNotFound->add(new class implements MiddlewareInterface {
+    public function process(HttpRequest $request, RequestHandler $next): HttpResponse
+    {
+        $started = microtime(true);
+        $response = $next->handle($request);
+        $response->headers->set('X-Response-Time', sprintf('%.4f', microtime(true) - $started));
+
+        return $response;
+    }
+});
+
+$routerNotFound->add(new class implements MiddlewareInterface {
+    public function process(HttpRequest $request, RequestHandler $next): HttpResponse
+    {
+        try {
+            return $next->handle($request);
+        } catch (RouteNotFoundException) {
+            return ResponseFactory::text('Not Found' . PHP_EOL, HttpStatusCode::NOT_FOUND);
+        }
+    }
+});
+
 pcntl_async_signals(true);
 pcntl_signal(SIGINT, static fn () => $loop->stop());
 pcntl_signal(SIGTERM, static fn () => $loop->stop());
@@ -78,7 +122,7 @@ $flush = static function (SelectLoop $loop, Connection $connection): void {
     }
 };
 
-$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $router, $flush): void {
+$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $routerNotFound, $flush): void {
     $connection = $server->accept();
 
     if ($connection === null) {
@@ -89,7 +133,7 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
     $connection->startReading();
 
-    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $router, $flush): void {
+    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $routerNotFound, $flush): void {
         $data = fread($stream, 8192);
 
         if ($data === false || $data === '') { // EOF → client is gone
@@ -116,13 +160,8 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
         $connection->readBuffer()->consume($parsed->consumedBytes);
 
         $request = $parsed->request;
-        printf("[#%d] %s %s\n", $connection->id, $request->method->value, $request->target);
 
-        try {
-            $response = $router->dispatch($request);
-        } catch (RouteNotFoundException) {
-            $response = ResponseFactory::text('Not Found' . PHP_EOL, HttpStatusCode::NOT_FOUND);
-        }
+        $response = $routerNotFound->handle($request);
 
         $connection->startWriting();
         $connection->queueWrite($encoder->encode($response));
