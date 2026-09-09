@@ -166,4 +166,18 @@ final class Server
     {
         return $this->config->host;
     }
+
+    /**
+     * The listening socket, for registering the server with an Event Loop.
+     *
+     * @return resource
+     */
+    public function socket(): mixed
+    {
+        if ($this->socket === null) {
+            throw new ServerStartException('Server has no socket: not started.');
+        }
+
+        return $this->socket;
+    }
 }
