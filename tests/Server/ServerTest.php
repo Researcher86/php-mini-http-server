@@ -46,14 +46,41 @@ final class ServerTest extends TestCase
         $client = stream_socket_client("tcp://127.0.0.1:$port", $errno, $errstr);
         $this->assertIsResource($client);
 
-        $accepted = $this->server->accept();
-        $this->assertIsResource($accepted);
+        $connection = $this->server->accept();
+        $this->assertNotNull($connection);
+
+        $socket = $connection->socket();
+        $this->assertIsResource($socket);
 
         fwrite($client, "hello\n");
-        $this->assertSame("hello\n", fread($accepted, 6));
+        $this->assertSame("hello\n", fread($socket, 6));
 
-        fclose($accepted);
+        $this->server->close($connection);
         fclose($client);
+    }
+
+    public function testTracksConnectionsUntilClosed(): void
+    {
+        $this->server->start();
+
+        $port = $this->server->getPort();
+
+        $clientA = stream_socket_client("tcp://127.0.0.1:$port");
+        $clientB = stream_socket_client("tcp://127.0.0.1:$port");
+
+        $a = $this->server->accept();
+        $b = $this->server->accept();
+
+        $this->assertNotNull($a);
+        $this->assertNotNull($b);
+        $this->assertNotSame($a->id, $b->id);
+        $this->assertSame(2, $this->server->connectionCount());
+
+        $this->server->close($a);
+        $this->assertSame(1, $this->server->connectionCount());
+
+        fclose($clientA);
+        fclose($clientB);
     }
 
     public function testAcceptReturnsNullWhenNothingIsPending(): void

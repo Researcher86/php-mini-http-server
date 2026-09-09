@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Server;
 
+use App\Connection\Connection;
+
 /**
  * A minimal TCP server owning a single listening socket.
  *
@@ -15,11 +17,19 @@ namespace App\Server;
  * it to the Event Loop and let stream_select() do the waiting instead of
  * blocking accept(). Until then accept() returns null when no client is
  * waiting to be connected.
+ *
+ * Accepted sockets are wrapped in Connections and tracked by id, so the
+ * server can tell how many clients are alive and close them on stop().
  */
 final class Server
 {
     /** @var resource|null */
     private $socket = null;
+
+    /** @var array<int, Connection> keyed by connection id */
+    private array $connections = [];
+
+    private int $nextConnectionId = 1;
 
     private ServerState $state = ServerState::STOPPED;
 
@@ -55,11 +65,11 @@ final class Server
     }
 
     /**
-     * Accept one pending client connection.
+     * Accept one pending client connection and wrap it in a Connection.
      *
-     * @return resource|null the client socket, or null when nothing is pending
+     * @return Connection|null the new connection, or null when nothing is pending
      */
-    public function accept()
+    public function accept(): ?Connection
     {
         if ($this->socket === null) {
             throw new ServerStartException('Cannot accept: server is not started.');
@@ -73,11 +83,42 @@ final class Server
 
         stream_set_blocking($client, false);
 
-        return $client;
+        $id = $this->nextConnectionId++;
+        $connection = Connection::accepted($id, $client, (string) $peer);
+        $connection->connect();
+
+        $this->connections[$id] = $connection;
+
+        return $connection;
+    }
+
+    public function close(Connection $connection): void
+    {
+        $connection->close();
+        unset($this->connections[$connection->id]);
+    }
+
+    /**
+     * @return list<Connection>
+     */
+    public function connections(): array
+    {
+        return array_values($this->connections);
+    }
+
+    public function connectionCount(): int
+    {
+        return count($this->connections);
     }
 
     public function stop(): void
     {
+        foreach ($this->connections as $connection) {
+            $connection->close();
+        }
+
+        $this->connections = [];
+
         if ($this->socket !== null) {
             fclose($this->socket);
             $this->socket = null;

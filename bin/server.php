@@ -9,10 +9,9 @@ use App\Server\ServerStartException;
 require __DIR__ . '/../vendor/autoload.php';
 
 /**
- * Phase 1: a bare TCP server.
- *
- * Accepts connections and echoes the first line back, then closes.
- * Run with Ctrl+C / SIGTERM to stop.
+ * Phase 2: the server wraps every accepted socket in a Connection,
+ * which tracks state and metadata. Each incoming line is echoed back
+ * once, then the connection closes.
  */
 $host = getenv('HTTP_SERVER_HOST') ?: '127.0.0.1';
 $port = (int) (getenv('HTTP_SERVER_PORT') ?: '8080');
@@ -30,18 +29,23 @@ printf("Listening on tcp://%s:%d\n", $server->getHost(), $server->getPort());
 printf("State: %s\n", $server->state()->value);
 
 while ($server->isRunning()) {
-    $client = $server->accept();
+    $connection = $server->accept();
 
-    if ($client === null) {
+    if ($connection === null) {
         usleep(10_000);
         continue;
     }
 
-    $line = fgets($client);
+    printf("[#%d] connected from %s\n", $connection->id, $connection->remoteAddress());
+
+    $connection->startReading();
+    $line = fgets($connection->socket());
 
     if ($line !== false) {
-        fwrite($client, "echo: " . trim($line) . "\n");
+        $connection->startWriting();
+        fwrite($connection->socket(), 'echo: ' . trim($line) . "\n");
     }
 
-    fclose($client);
+    $server->close($connection);
+    printf("[#%d] closed\n", $connection->id);
 }
