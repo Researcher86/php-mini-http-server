@@ -16,6 +16,7 @@ use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
 use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
+use App\Metrics\ServerMetrics;
 use App\Router\RouteNotFoundException;
 use App\Router\Router;
 use App\Server\Server;
@@ -53,6 +54,7 @@ try {
 $parser = new HttpParser();
 $encoder = new ResponseEncoder();
 $router = new Router();
+$metrics = new ServerMetrics();
 $loop = new SelectLoop();
 
 $router->get('/', static fn (): HttpResponse => ResponseFactory::text('Hello, world!' . PHP_EOL));
@@ -68,6 +70,23 @@ $router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpRespo
 // A deliberately large body so the Phase 18 backpressure demo has something
 // to overflow the write buffer with.
 $router->get('/big', static fn (): HttpResponse => ResponseFactory::text(str_repeat('x', 32_768)));
+
+/**
+ * Phase 20: observability. The /metrics route dumps the counters the server
+ * has been feeding since it started.
+ */
+$router->get('/metrics', static function () use ($metrics, $server): HttpResponse {
+    return ResponseFactory::text(sprintf(
+        "active_connections %d\ntotal_requests %d\nrequests_per_second %.2f\nbytes_read %d\nbytes_written %d\navg_request_duration_ms %.3f\nuptime_seconds %.1f\n",
+        $server->connectionCount(),
+        $metrics->totalRequests(),
+        $metrics->requestsPerSecond(),
+        $metrics->bytesRead(),
+        $metrics->bytesWritten(),
+        $metrics->averageRequestDuration() * 1000,
+        $metrics->uptimeSeconds(),
+    ));
+});
 
 /**
  * Phase 11+13: the request travels through a middleware pipeline before the
@@ -164,11 +183,11 @@ $loop->every(1.0, static function () use (&$draining, $loop, $server): void {
  *
  * @param Closure(): void|null $onDrained
  */
-$drain = static function (SelectLoop $loop, Connection $connection, ?Closure $onDrained = null): void {
+$drain = static function (SelectLoop $loop, Connection $connection, ?Closure $onDrained = null) use ($metrics): void {
     $stream = $connection->socket();
 
-    $loop->onWritable($stream, static function ($s) use ($loop, $connection, $onDrained): void {
-        $connection->flushWrite($s);
+    $loop->onWritable($stream, static function ($s) use ($loop, $connection, $onDrained, $metrics): void {
+        $metrics->recordBytesWritten($connection->flushWrite($s));
 
         if ($connection->writeBuffer()->isEmpty()) {
             $loop->removeWritable($s);
@@ -180,7 +199,7 @@ $drain = static function (SelectLoop $loop, Connection $connection, ?Closure $on
     });
 };
 
-$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $routerNotFound, $drain): void {
+$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $routerNotFound, $drain, $metrics): void {
     $connection = $server->accept();
 
     if ($connection === null) {
@@ -193,7 +212,7 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
     $onData = null;
 
-    $onData = static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $routerNotFound, $drain, &$onData): void {
+    $onData = static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $routerNotFound, $drain, $metrics, &$onData): void {
         $data = fread($stream, 8192);
 
         if ($data === false || $data === '') { // EOF → client is gone
@@ -203,6 +222,7 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
         }
 
         $connection->appendRead($data);
+        $metrics->recordBytesRead(strlen($data));
 
         $closeAfterDrain = false;
         $queued = false;
@@ -233,10 +253,13 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
             $connection->readBuffer()->consume($parsed->consumedBytes);
 
             $request = $parsed->request;
+            $startedAt = microtime(true);
 
             $keepAlive = $request->wantsKeepAlive();
             $response = $routerNotFound->handle($request);
             $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
+
+            $metrics->recordRequest(microtime(true) - $startedAt);
 
             $connection->queueWrite($encoder->encode($response));
             $queued = true;
