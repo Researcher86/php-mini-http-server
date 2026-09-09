@@ -58,7 +58,8 @@ final class Router implements RequestHandler
     }
 
     /**
-     * @throws RouteNotFoundException when no route matches the request
+     * @throws RouteNotFoundException   when no route matches the request
+     * @throws MethodNotAllowedException when the path exists but the method does not
      */
     public function dispatch(HttpRequest $request): HttpResponse
     {
@@ -73,19 +74,27 @@ final class Router implements RequestHandler
 
         $route = $this->matchPattern($method, $path);
 
-        if ($route === null) {
-            throw new RouteNotFoundException(sprintf(
-                'No route for %s %s',
-                $request->method->value,
-                $path,
-            ));
+        if ($route !== null) {
+            $params = [];
+            preg_match($route->regex, $path, $params);
+            $params = array_filter($params, 'is_string', ARRAY_FILTER_USE_KEY);
+
+            return ($route->handler)($request, $params);
         }
 
-        $params = [];
-        preg_match($route->regex, $path, $params);
-        $params = array_filter($params, 'is_string', ARRAY_FILTER_USE_KEY);
+        // No route for this method + path. If the path is served under some
+        // other method the right answer is 405, not 404.
+        $allowed = $this->allowedMethodsFor($path);
 
-        return ($route->handler)($request, $params);
+        if ($allowed !== []) {
+            throw new MethodNotAllowedException($allowed);
+        }
+
+        throw new RouteNotFoundException(sprintf(
+            'No route for %s %s',
+            $request->method->value,
+            $path,
+        ));
     }
 
     public function count(): int
@@ -124,5 +133,31 @@ final class Router implements RequestHandler
         }
 
         return null;
+    }
+
+    /**
+     * The methods that serve $path under some route (any pattern or exact
+     * route), so a 405 can name them in its Allow header.
+     *
+     * @return list<string>
+     */
+    private function allowedMethodsFor(string $path): array
+    {
+        $allowed = [];
+
+        foreach (HttpMethod::cases() as $method) {
+            $value = $method->value;
+
+            if (isset($this->exact[$value][$path])) {
+                $allowed[] = $value;
+                continue;
+            }
+
+            if ($this->matchPattern($value, $path) !== null) {
+                $allowed[] = $value;
+            }
+        }
+
+        return $allowed;
     }
 }

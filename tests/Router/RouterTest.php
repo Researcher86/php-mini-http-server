@@ -10,6 +10,7 @@ use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
 use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
+use App\Router\MethodNotAllowedException;
 use App\Router\RouteNotFoundException;
 use App\Router\Router;
 use App\Http\Headers\Headers;
@@ -62,12 +63,37 @@ final class RouterTest extends TestCase
         $this->router->dispatch($this->request('/missing'));
     }
 
-    public function testUnknownMethodOnKnownPathThrowsRouteNotFound(): void
+    public function testUnknownMethodOnKnownPathThrowsMethodNotAllowed(): void
     {
         $this->router->get('/hello', static fn (HttpRequest $r): HttpResponse => ResponseFactory::text('hi'));
 
-        $this->expectException(RouteNotFoundException::class);
+        $this->expectException(MethodNotAllowedException::class);
         $this->router->dispatch($this->request('/hello', HttpMethod::DELETE));
+    }
+
+    public function testKnownPathWithDifferentMethodThrowsMethodNotAllowedWithAllowHeader(): void
+    {
+        $this->router->get('/hello', static fn (HttpRequest $r): HttpResponse => ResponseFactory::text('hi'));
+
+        try {
+            $this->router->dispatch($this->request('/hello', HttpMethod::POST));
+            $this->fail('Expected MethodNotAllowedException');
+        } catch (MethodNotAllowedException $e) {
+            $this->assertSame('GET', $e->allowedMethods());
+        }
+    }
+
+    public function testMethodNotAllowedForPatternRoutes(): void
+    {
+        $this->router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::empty());
+        $this->router->delete('/users/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::empty());
+
+        try {
+            $this->router->dispatch($this->request('/users/42', HttpMethod::POST));
+            $this->fail('Expected MethodNotAllowedException');
+        } catch (MethodNotAllowedException $e) {
+            $this->assertSame(['GET', 'DELETE'], $e->allowed);
+        }
     }
 
     public function testQueryStringDoesNotAffectMatching(): void

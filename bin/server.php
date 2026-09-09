@@ -6,6 +6,7 @@ use App\Connection\Connection;
 use App\EventLoop\SelectLoop;
 use App\Http\Handler\HelloHandler;
 use App\Http\Handler\RequestHandler;
+use App\Http\Middleware\ErrorHandlerMiddleware;
 use App\Http\Middleware\MiddlewareInterface;
 use App\Http\Middleware\MiddlewarePipeline;
 use App\Http\Protocol\HttpParser;
@@ -62,12 +63,15 @@ $router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpRespo
 ]));
 
 /**
- * Phase 11: the request travels through a middleware pipeline before the
+ * Phase 11+13: the request travels through a middleware pipeline before the
  * router sees it. The logging middleware runs before and after the router;
  * the timing middleware stamps the response with how long the whole chain
- * took, and turns missing routes into 404 responses on the way back out.
+ * took; the error handler turns exceptions into proper 400/404/405/500
+ * responses instead of killing the process.
  */
 $routerNotFound = new MiddlewarePipeline($router);
+
+$routerNotFound->add(new ErrorHandlerMiddleware());
 
 $routerNotFound->add(new class implements MiddlewareInterface {
     public function process(HttpRequest $request, RequestHandler $next): HttpResponse
@@ -88,17 +92,6 @@ $routerNotFound->add(new class implements MiddlewareInterface {
         $response->headers->set('X-Response-Time', sprintf('%.4f', microtime(true) - $started));
 
         return $response;
-    }
-});
-
-$routerNotFound->add(new class implements MiddlewareInterface {
-    public function process(HttpRequest $request, RequestHandler $next): HttpResponse
-    {
-        try {
-            return $next->handle($request);
-        } catch (RouteNotFoundException) {
-            return ResponseFactory::text('Not Found' . PHP_EOL, HttpStatusCode::NOT_FOUND);
-        }
     }
 });
 
@@ -146,7 +139,17 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
         try {
             $parsed = $parser->parse((string) $connection->readBuffer());
         } catch (MalformedRequestException $e) {
+            // Phase 13: malformed bytes answer 400 instead of killing the
+            // connection without a word — but the socket is unusable after
+            // a garbage request, so close it right after flushing.
             printf("[#%d] malformed request: %s\n", $connection->id, $e->getMessage());
+
+            $response = ResponseFactory::text('Bad Request' . PHP_EOL, HttpStatusCode::BAD_REQUEST);
+
+            $connection->startWriting();
+            $connection->queueWrite($encoder->encode($response));
+            $flush($loop, $connection);
+
             $loop->removeReadable($stream);
             $server->close($connection);
             return;
