@@ -25,11 +25,10 @@ use App\Server\ServerStartException;
 require __DIR__ . '/../vendor/autoload.php';
 
 /**
- * Phases 5-15: raw TCP bytes become HttpRequest objects, the router picks
+ * Phases 5-16: raw TCP bytes become HttpRequest objects, the router picks
  * the handler, and responses flush through the WriteBuffer. One read may
  * carry several pipelined requests — each is parsed and answered in order —
- * and after the responses are written the connection either goes back to
- * reading (keep-alive) or closes.
+ * and a periodic timer runs scheduled work between the read/write events.
  */
 $host = getenv('HTTP_SERVER_HOST') ?: '127.0.0.1';
 $port = (int) (getenv('HTTP_SERVER_PORT') ?: '8080');
@@ -94,6 +93,15 @@ $routerNotFound->add(new class implements MiddlewareInterface {
 pcntl_async_signals(true);
 pcntl_signal(SIGINT, static fn () => $loop->stop());
 pcntl_signal(SIGTERM, static fn () => $loop->stop());
+
+/**
+ * Phase 16: scheduled work alongside read/write events. This periodic timer
+ * is the heartbeat that idle-timeout and periodic-cleanup phases build on —
+ * it wakes the loop, looks around, and goes back to sleep.
+ */
+$loop->every(2.0, static function () use ($server): void {
+    printf("[tick] %d active connection(s)\n", $server->connectionCount());
+});
 
 /**
  * Drain a connection's write buffer into its socket, waiting on writable
