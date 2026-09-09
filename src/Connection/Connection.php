@@ -25,7 +25,7 @@ final class Connection
 {
     private ConnectionState $state;
 
-    private string $readBuffer = '';
+    private ReadBuffer $readBuffer;
 
     private string $writeBuffer = '';
 
@@ -41,6 +41,7 @@ final class Connection
         private readonly string $remoteAddress,
         private readonly float $connectedAt,
     ) {
+        $this->readBuffer = new ReadBuffer();
         $this->state = ConnectionState::NEW;
         $this->lastActivityAt = $connectedAt;
     }
@@ -138,22 +139,25 @@ final class Connection
 
     public function appendRead(string $data): void
     {
-        $this->readBuffer .= $data;
+        $this->readBuffer->append($data);
         $this->bytesRead += strlen($data);
         $this->lastActivityAt = microtime(true);
     }
 
-    public function readBuffer(): string
+    public function readBuffer(): ReadBuffer
     {
         return $this->readBuffer;
     }
 
     /**
-     * Remove consumed bytes from the head of the read buffer.
+     * True when the accumulated bytes contain a full request header block.
+     *
+     * Header delimiter choice "\r\n\r\n" is HTTP's own; the parser will teach
+     * the buffer to also respect body lengths in a later phase.
      */
-    public function consumeRead(int $length): void
+    public function hasCompleteRequest(): bool
     {
-        $this->readBuffer = substr($this->readBuffer, $length);
+        return $this->readBuffer->contains("\r\n\r\n");
     }
 
     public function queueWrite(string $data): void

@@ -67,7 +67,7 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
         // A socket is usually writable immediately; writing in a dedicated
         // writable phase keeps the read phase free for other connections.
         $loop->onWritable($stream, static function ($stream) use ($loop, $server, $connection): void {
-            fwrite($stream, 'echo: ' . trim($connection->readBuffer()) . "\n");
+            fwrite($stream, 'echo: ' . trim((string) $connection->readBuffer()) . "\n");
             $loop->removeWritable($stream);
             $loop->removeReadable($stream);
             $server->close($connection);

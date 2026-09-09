@@ -71,17 +71,26 @@ final class ConnectionTest extends TestCase
         $this->connection->connect();
     }
 
-    public function testReadBufferAccumulatesAndConsumes(): void
+    public function testReadBufferAccumulatesAcrossPartialReads(): void
     {
         $this->connection->connect();
         $this->connection->appendRead('GET /hel');
         $this->connection->appendRead('lo HTTP/1.1');
 
-        $this->assertSame('GET /hello HTTP/1.1', $this->connection->readBuffer());
+        $this->assertSame('GET /hello HTTP/1.1', (string) $this->connection->readBuffer());
         $this->assertSame(19, $this->connection->bytesRead());
 
-        $this->connection->consumeRead(4);
-        $this->assertSame('/hello HTTP/1.1', $this->connection->readBuffer());
+        $this->connection->readBuffer()->consume(4);
+        $this->assertSame('/hello HTTP/1.1', (string) $this->connection->readBuffer());
+    }
+
+    public function testCompleteRequestIsDetectedOnlyAfterHeaderTerminator(): void
+    {
+        $this->connection->appendRead("GET / HTTP/1.1\r\nHost: localhost");
+        $this->assertFalse($this->connection->hasCompleteRequest());
+
+        $this->connection->appendRead("\r\n\r\n");
+        $this->assertTrue($this->connection->hasCompleteRequest());
     }
 
     public function testWriteBufferAccumulates(): void
