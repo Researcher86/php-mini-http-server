@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use App\EventLoop\SelectLoop;
+use App\Http\Protocol\HttpParser;
+use App\Http\Protocol\MalformedRequestException;
 use App\Server\Server;
 use App\Server\ServerConfig;
 use App\Server\ServerStartException;
@@ -10,15 +12,12 @@ use App\Server\ServerStartException;
 require __DIR__ . '/../vendor/autoload.php';
 
 /**
- * Phase 3: one event loop, many connections.
+ * Phase 5: raw TCP bytes become HttpRequest objects.
  *
- * The server socket and every accepted client socket are registered with a
- * single SelectLoop. No blocking accept(), no blocking fgets() — the loop
- * tells us when a listener has a connection pending and when a client sent
- * bytes.
- *
- * Each received line is echoed back, then the connection closes.
- * Ctrl+C / SIGTERM stops the loop and the server.
+ * Every client socket stays in the read phase until its read buffer holds a
+ * complete request (the parser says so), then a text summary is echoed back
+ * and the connection closes. Partial and pipelined bytes are handled by the
+ * read buffer + parser, not by hand.
  */
 $host = getenv('HTTP_SERVER_HOST') ?: '127.0.0.1';
 $port = (int) (getenv('HTTP_SERVER_PORT') ?: '8080');
@@ -32,14 +31,14 @@ try {
     exit(1);
 }
 
+$parser = new HttpParser();
 $loop = new SelectLoop();
 
 pcntl_async_signals(true);
 pcntl_signal(SIGINT, static fn () => $loop->stop());
 pcntl_signal(SIGTERM, static fn () => $loop->stop());
 
-// New clients wake the loop through the listening socket.
-$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server): void {
+$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser): void {
     $connection = $server->accept();
 
     if ($connection === null) {
@@ -50,29 +49,46 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
     $connection->startReading();
 
-    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection): void {
+    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser): void {
         $data = fread($stream, 8192);
 
-        if ($data === false || $data === '') { // EOF or error → client is gone
+        if ($data === false || $data === '') { // EOF → client is gone
             $loop->removeReadable($stream);
-            $loop->removeWritable($stream);
             $server->close($connection);
-            printf("[#%d] closed\n", $connection->id);
             return;
         }
 
         $connection->appendRead($data);
-        $connection->startWriting();
 
-        // A socket is usually writable immediately; writing in a dedicated
-        // writable phase keeps the read phase free for other connections.
-        $loop->onWritable($stream, static function ($stream) use ($loop, $server, $connection): void {
-            fwrite($stream, 'echo: ' . trim((string) $connection->readBuffer()) . "\n");
-            $loop->removeWritable($stream);
+        try {
+            $parsed = $parser->parse((string) $connection->readBuffer());
+        } catch (MalformedRequestException $e) {
+            printf("[#%d] malformed request: %s\n", $connection->id, $e->getMessage());
             $loop->removeReadable($stream);
             $server->close($connection);
-            printf("[#%d] closed\n", $connection->id);
-        });
+            return;
+        }
+
+        if ($parsed === null) {
+            return; // wait for more bytes
+        }
+
+        $connection->readBuffer()->consume($parsed->consumedBytes);
+
+        $request = $parsed->request;
+        printf("[#%d] %s %s\n", $connection->id, $request->method->value, $request->target);
+
+        $connection->startWriting();
+        fwrite($stream, sprintf(
+            "Parsed %s %s (headers: %d, body: %d bytes)\n",
+            $request->method->value,
+            $request->target,
+            $request->headers->count(),
+            strlen($request->body),
+        ));
+
+        $loop->removeReadable($stream);
+        $server->close($connection);
     });
 });
 
