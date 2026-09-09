@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Connection\Connection;
 use App\EventLoop\SelectLoop;
+use App\Http\Handler\HelloHandler;
 use App\Http\Handler\RequestHandler;
 use App\Http\Middleware\MiddlewareInterface;
 use App\Http\Middleware\MiddlewarePipeline;
@@ -51,9 +52,7 @@ $router = new Router();
 $loop = new SelectLoop();
 
 $router->get('/', static fn (): HttpResponse => ResponseFactory::text('Hello, world!' . PHP_EOL));
-$router->get('/hello', static fn (HttpRequest $r): HttpResponse => ResponseFactory::text(
-    sprintf("Hello, %s!\n", $r->query()['name'] ?? 'world'),
-));
+$router->get('/hello', (new HelloHandler())->handle(...));
 $router->post('/users', static fn (HttpRequest $r): HttpResponse => ResponseFactory::json(
     ['received' => $r->body],
     HttpStatusCode::CREATED,
