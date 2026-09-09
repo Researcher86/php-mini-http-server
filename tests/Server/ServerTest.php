@@ -117,4 +117,66 @@ final class ServerTest extends TestCase
         $this->expectException(ServerStartException::class);
         $this->server->accept();
     }
+
+    public function testCloseIdleConnectionsReapsQuietClients(): void
+    {
+        $this->server->start();
+
+        $port = $this->server->getPort();
+
+        $client = stream_socket_client("tcp://127.0.0.1:$port");
+        $connection = $this->server->accept();
+        $this->assertNotNull($connection);
+
+        $closed = $this->server->closeIdleConnections(5.0, now: $connection->connectedAt() + 10.0);
+
+        $this->assertSame([$connection], $closed);
+        $this->assertSame(0, $this->server->connectionCount());
+
+        fclose($client);
+    }
+
+    public function testActiveConnectionsSurviveTheIdleSweep(): void
+    {
+        $this->server->start();
+
+        $port = $this->server->getPort();
+
+        $client = stream_socket_client("tcp://127.0.0.1:$port");
+        $connection = $this->server->accept();
+        $this->assertNotNull($connection);
+
+        $connection->appendRead('data'); // activity updates lastActivityAt
+
+        $closed = $this->server->closeIdleConnections(5.0, now: $connection->connectedAt() + 2.0);
+
+        $this->assertSame([], $closed);
+        $this->assertSame(1, $this->server->connectionCount());
+
+        $this->server->close($connection);
+        fclose($client);
+    }
+
+    public function testCloseIdleConnectionsReportsMultipleReclaims(): void
+    {
+        $this->server->start();
+
+        $port = $this->server->getPort();
+
+        $clientA = stream_socket_client("tcp://127.0.0.1:$port");
+        $clientB = stream_socket_client("tcp://127.0.0.1:$port");
+
+        $a = $this->server->accept();
+        $b = $this->server->accept();
+        $this->assertNotNull($a);
+        $this->assertNotNull($b);
+
+        $closed = $this->server->closeIdleConnections(1.0, now: $a->connectedAt() + 5.0);
+
+        $this->assertCount(2, $closed);
+        $this->assertSame(0, $this->server->connectionCount());
+
+        fclose($clientA);
+        fclose($clientB);
+    }
 }

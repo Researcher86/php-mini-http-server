@@ -33,7 +33,9 @@ require __DIR__ . '/../vendor/autoload.php';
 $host = getenv('HTTP_SERVER_HOST') ?: '127.0.0.1';
 $port = (int) (getenv('HTTP_SERVER_PORT') ?: '8080');
 
-$server = new Server(new ServerConfig(host: $host, port: $port));
+// Short idle timeout for the demo: a connection that goes quiet for 5
+// seconds is reclaimed by the periodic sweep.
+$server = new Server(new ServerConfig(host: $host, port: $port, connectionTimeout: 5.0));
 
 try {
     $server->start();
@@ -95,12 +97,21 @@ pcntl_signal(SIGINT, static fn () => $loop->stop());
 pcntl_signal(SIGTERM, static fn () => $loop->stop());
 
 /**
- * Phase 16: scheduled work alongside read/write events. This periodic timer
- * is the heartbeat that idle-timeout and periodic-cleanup phases build on —
- * it wakes the loop, looks around, and goes back to sleep.
+ * Phase 16+17: scheduled work alongside read/write events. The heartbeat
+ * tick keeps the loop awake, and the periodic sweep closes connections that
+ * have been idle past the configured timeout, so dead clients do not hold a
+ * socket forever.
  */
 $loop->every(2.0, static function () use ($server): void {
     printf("[tick] %d active connection(s)\n", $server->connectionCount());
+});
+
+$loop->every(1.0, static function () use ($server): void {
+    $closed = $server->closeIdleConnections($server->config()->connectionTimeout);
+
+    foreach ($closed as $connection) {
+        printf("[#%d] closed: idle timeout\n", $connection->id);
+    }
 });
 
 /**

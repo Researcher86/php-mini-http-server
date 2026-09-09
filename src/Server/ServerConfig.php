@@ -17,6 +17,7 @@ final readonly class ServerConfig
         public string $host = '127.0.0.1',
         public int $port = 8080,
         public int $backlog = 128,
+        public float $connectionTimeout = 30.0,
     ) {
     }
 }

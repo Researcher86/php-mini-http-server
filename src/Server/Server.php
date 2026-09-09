@@ -92,6 +92,30 @@ final class Server
         return $connection;
     }
 
+    /**
+     * Close every connection that has been idle longer than $idleSeconds.
+     *
+     * The periodic connection sweep (Phase 17) calls this on a timer, so a
+     * client that connects and sends nothing — or goes quiet mid-request —
+     * is eventually reclaimed instead of holding a socket forever.
+     *
+     * @return list<Connection> the connections that were closed
+     */
+    public function closeIdleConnections(float $idleSeconds, ?float $now = null): array
+    {
+        $now ??= microtime(true);
+        $closed = [];
+
+        foreach ($this->connections as $connection) {
+            if ($now - $connection->lastActivityAt() > $idleSeconds) {
+                $this->close($connection);
+                $closed[] = $connection;
+            }
+        }
+
+        return $closed;
+    }
+
     public function close(Connection $connection): void
     {
         $connection->close();
@@ -165,6 +189,11 @@ final class Server
     public function getHost(): string
     {
         return $this->config->host;
+    }
+
+    public function config(): ServerConfig
+    {
+        return $this->config;
     }
 
     /**
