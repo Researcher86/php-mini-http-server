@@ -1066,7 +1066,7 @@ STOPPED
 
 The project is implemented incrementally.
 
-## Phase 1 — TCP Server
+## Phase 1 — TCP Server  ✅
 
 ```text
 Socket
@@ -1076,7 +1076,7 @@ Listen
 Accept
 ```
 
-## Phase 2 — Connections
+## Phase 2 — Connections  ✅
 
 ```text
 Connection Lifecycle
@@ -1086,7 +1086,7 @@ Read Buffer
 Write Buffer
 ```
 
-## Phase 3 — Event Loop
+## Phase 3 — Event Loop  ✅
 
 ```text
 Read Events
@@ -1096,7 +1096,7 @@ Write Events
 Timers
 ```
 
-## Phase 4 — HTTP Parsing
+## Phase 4 — HTTP Parsing  ✅
 
 ```text
 Request Line

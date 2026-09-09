@@ -62,7 +62,7 @@ Event Loop
 
 ---
 
-# Phase 0 — Project Setup
+# Phase 0 — Project Setup  ✅
 
 ## Goal
 
@@ -114,7 +114,7 @@ Run static analysis
 
 ---
 
-# Phase 1 — Basic TCP Server
+# Phase 1 — Basic TCP Server  ✅
 
 ## Goal
 
@@ -174,7 +174,7 @@ The server can accept a TCP connection.
 
 ---
 
-# Phase 2 — Connection Model
+# Phase 2 — Connection Model  ✅
 
 ## Goal
 
@@ -229,7 +229,7 @@ The server can manage multiple connection objects.
 
 ---
 
-# Phase 3 — Event Loop
+# Phase 3 — Event Loop  ✅
 
 ## Goal
 
@@ -277,7 +277,7 @@ One PHP process can manage multiple client connections.
 
 ---
 
-# Phase 4 — Read Buffers
+# Phase 4 — Read Buffers  ✅
 
 ## Goal
 
@@ -353,7 +353,7 @@ Partial requests work correctly.
 
 ---
 
-# Phase 5 — HTTP Request Parser
+# Phase 5 — HTTP Request Parser  ✅
 
 ## Goal
 
