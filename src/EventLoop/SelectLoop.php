@@ -236,7 +236,9 @@ final class SelectLoop implements EventLoop
         [$seconds, $microseconds] = $this->splitTimeout($timeout);
 
         try {
-            stream_select($read, $write, $except, $seconds, $microseconds);
+            // EINTR (a handled signal interrupting select) is not an error
+            // here — the loop just re-waits on the next iteration.
+            @stream_select($read, $write, $except, $seconds, $microseconds);
         } catch (ValueError) {
             // A watched stream vanished between loop iterations — drop the dead ones.
             $this->dropClosedStreams();
