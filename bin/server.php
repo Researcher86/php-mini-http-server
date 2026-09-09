@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Connection\Connection;
 use App\EventLoop\SelectLoop;
 use App\Http\Protocol\HttpParser;
 use App\Http\Protocol\MalformedRequestException;
@@ -14,12 +15,15 @@ use App\Server\ServerStartException;
 require __DIR__ . '/../vendor/autoload.php';
 
 /**
- * Phase 5: raw TCP bytes become HttpRequest objects.
+ * Phases 5-8: raw TCP bytes become HttpRequest objects, and the response is
+ * queued and flushed through the connection's WriteBuffer, surviving partial
+ * socket writes.
  *
- * Every client socket stays in the read phase until its read buffer holds a
- * complete request (the parser says so), then a text summary is echoed back
- * and the connection closes. Partial and pipelined bytes are handled by the
- * read buffer + parser, not by hand.
+ * A request is parsed out of the read buffer, the matching response is
+ * queued, and a writable watcher drains the write buffer until it is empty.
+ * This is the write path every later phase (keep-alive, backpressure) builds
+ * on. Responses that happen to be small are still routed through the same
+ * buffer so one code path serves them all.
  */
 $host = getenv('HTTP_SERVER_HOST') ?: '127.0.0.1';
 $port = (int) (getenv('HTTP_SERVER_PORT') ?: '8080');
@@ -41,7 +45,22 @@ pcntl_async_signals(true);
 pcntl_signal(SIGINT, static fn () => $loop->stop());
 pcntl_signal(SIGTERM, static fn () => $loop->stop());
 
-$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder): void {
+/**
+ * Drain a connection's write buffer into its socket until it is empty, then
+ * stop watching for writable events. Everything flows through the buffer so
+ * a socket that accepts only part of a large response is handled the same
+ * way as a socket that takes it all at once.
+ */
+$flush = static function (SelectLoop $loop, Connection $connection): void {
+    $stream = $connection->socket();
+    $written = $connection->flushWrite($stream);
+
+    if ($written <= 0 || $connection->writeBuffer()->isEmpty()) {
+        $loop->removeWritable($stream);
+    }
+};
+
+$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $flush): void {
     $connection = $server->accept();
 
     if ($connection === null) {
@@ -52,7 +71,7 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
     $connection->startReading();
 
-    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder): void {
+    $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $flush): void {
         $data = fread($stream, 8192);
 
         if ($data === false || $data === '') { // EOF → client is gone
@@ -90,7 +109,8 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
         ));
 
         $connection->startWriting();
-        fwrite($stream, $encoder->encode($response));
+        $connection->queueWrite($encoder->encode($response));
+        $flush($loop, $connection);
 
         $loop->removeReadable($stream);
         $server->close($connection);

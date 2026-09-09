@@ -27,7 +27,7 @@ final class Connection
 
     private ReadBuffer $readBuffer;
 
-    private string $writeBuffer = '';
+    private WriteBuffer $writeBuffer;
 
     private int $bytesRead = 0;
 
@@ -42,6 +42,7 @@ final class Connection
         private readonly float $connectedAt,
     ) {
         $this->readBuffer = new ReadBuffer();
+        $this->writeBuffer = new WriteBuffer();
         $this->state = ConnectionState::NEW;
         $this->lastActivityAt = $connectedAt;
     }
@@ -163,17 +164,33 @@ final class Connection
     public function queueWrite(string $data): void
     {
         $this->assertNotClosed('queueWrite');
-        $this->writeBuffer .= $data;
+        $this->writeBuffer->append($data);
     }
 
-    public function writeBuffer(): string
+    public function writeBuffer(): WriteBuffer
     {
         return $this->writeBuffer;
     }
 
     public function writeBufferLength(): int
     {
-        return strlen($this->writeBuffer);
+        return $this->writeBuffer->length();
+    }
+
+    /**
+     * Attempt a flush of the write buffer to the socket; bytes not accepted
+     * stay queued for the next writable event.
+     *
+     * @param resource $stream
+     */
+    public function flushWrite(mixed $stream): int
+    {
+        $written = $this->writeBuffer->flushTo($stream);
+
+        $this->bytesWritten += $written;
+        $this->lastActivityAt = microtime(true);
+
+        return $written;
     }
 
     public function isClosed(): bool

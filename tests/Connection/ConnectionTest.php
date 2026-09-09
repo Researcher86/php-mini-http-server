@@ -98,7 +98,7 @@ final class ConnectionTest extends TestCase
         $this->connection->queueWrite('HTTP/1.1 200 OK');
         $this->connection->queueWrite("\r\n\r\n");
 
-        $this->assertSame("HTTP/1.1 200 OK\r\n\r\n", $this->connection->writeBuffer());
+        $this->assertSame("HTTP/1.1 200 OK\r\n\r\n", (string) $this->connection->writeBuffer());
         $this->assertSame(19, $this->connection->writeBufferLength());
     }
 
