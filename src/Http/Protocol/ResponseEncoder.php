@@ -34,7 +34,12 @@ final class ResponseEncoder
         // that never frame a body are 1xx and 204 (their length is implicit
         // in the status line); everything else that has no Content-Length
         // yet is framed right here.
-        if (!isset($headers['Content-Length']) && $response->status->framesBody()) {
+        //
+        // The "already framed?" question goes through Headers, which knows
+        // names are case-insensitive: asking the normalized array directly
+        // would miss a handler's "content-length" and emit a second, capital
+        // copy — two Content-Length lines, which recipients must reject.
+        if (!$response->headers->has('Content-Length') && $response->status->framesBody()) {
             $headers['Content-Length'] = (string) $response->contentLength();
         }
 

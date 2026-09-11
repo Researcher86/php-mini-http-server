@@ -89,6 +89,23 @@ final class ResponseEncoderTest extends TestCase
         $this->assertSame("HTTP/1.1 204 No Content\r\n\r\n", $raw);
     }
 
+    public function testHandSetContentLengthIsRespectedWhateverItsCasing(): void
+    {
+        // Header names are case-insensitive on the wire, so a handler that
+        // writes "content-length" has already framed the body. Adding our
+        // own canonical copy would put two Content-Length lines in one
+        // response — the framing error RFC 7230 tells recipients to reject.
+        $headers = new Headers();
+        $headers->set('content-length', '5');
+
+        $encoded = (new ResponseEncoder())->encode(
+            new HttpResponse(HttpVersion::HTTP_1_1, HttpStatusCode::OK, $headers, 'Hello'),
+        );
+
+        $this->assertSame(1, substr_count(strtolower($encoded), 'content-length:'));
+        $this->assertStringContainsString("content-length: 5\r\n", $encoded);
+    }
+
     public function testHandSetContentLengthIsRespected(): void
     {
         $headers = new Headers();
