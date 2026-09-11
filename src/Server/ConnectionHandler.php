@@ -12,6 +12,7 @@ use App\Http\Protocol\HttpMethod;
 use App\Http\Protocol\HttpParser;
 use App\Http\Protocol\RequestException;
 use App\Http\Protocol\ResponseEncoder;
+use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
 use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
@@ -116,7 +117,9 @@ final readonly class ConnectionHandler
             $this->connection->readBuffer()->consume($parsed->consumedBytes);
             $this->connection->startProcessing();
 
-            $request = $parsed->request;
+            // Every parsed request gets an answer, one way or another, so
+            // from here on there is something to flush.
+            $queued = true;
 
             // Phase 19 graceful shutdown: once the server is DRAINING no NEW
             // request may start. In-flight work is finished and flushed
@@ -126,47 +129,15 @@ final readonly class ConnectionHandler
             // refused with 503 + close so the client learns why, then the
             // connection ends once the response flushes.
             if ($this->server->isDraining()) {
-                $response = ResponseFactory::text('Service Unavailable' . PHP_EOL, HttpStatusCode::SERVICE_UNAVAILABLE);
-                $response->headers->set('Connection', 'close');
-
-                $this->connection->queueWrite($this->encoder->encode($response));
-                $queued = true;
+                $this->queueResponse(
+                    ResponseFactory::text('Service Unavailable' . PHP_EOL, HttpStatusCode::SERVICE_UNAVAILABLE),
+                    keepAlive: false,
+                );
                 $closeAfterDrain = true;
                 break;
             }
 
-            $startedAt = microtime(true);
-
-            $keepAlive = $request->wantsKeepAlive();
-            $response = $this->application->handle($request);
-
-            // HEAD is GET without a body. Work from the would-be body while
-            // it is still here so Content-Length matches what the GET would
-            // have sent (ResponseFactory sets it already; the upgrade covers
-            // hand-built responses), then drop the bytes themselves. Only
-            // body-framing statuses get the header: a 204 must never see
-            // Content-Length, not even 0.
-            if ($request->method === HttpMethod::HEAD && $response->status->framesBody()) {
-                if (!$response->headers->has('Content-Length')) {
-                    $response->headers->set('Content-Length', (string) $response->contentLength());
-                }
-
-                $response = new HttpResponse(
-                    $response->version,
-                    $response->status,
-                    $response->headers,
-                    '',
-                );
-            }
-
-            $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
-
-            $this->metrics->recordRequest(microtime(true) - $startedAt);
-
-            $this->connection->queueWrite($this->encodeOrFail($response, $keepAlive));
-            $queued = true;
-
-            if (!$keepAlive) {
+            if (!$this->serve($parsed->request)) {
                 $closeAfterDrain = true;
                 break;
             }
@@ -196,6 +167,61 @@ final readonly class ConnectionHandler
         $this->drain($closeAfterDrain
             ? $this->close(...)
             : $this->connection->backToReading(...));
+    }
+
+    /**
+     * Run one request through the application and queue its response.
+     *
+     * @return bool whether this connection may go on to serve another request
+     */
+    private function serve(HttpRequest $request): bool
+    {
+        $startedAt = microtime(true);
+
+        $keepAlive = $request->wantsKeepAlive();
+        $response = $this->application->handle($request);
+
+        if ($request->method === HttpMethod::HEAD) {
+            $response = $this->withoutBody($response);
+        }
+
+        $this->metrics->recordRequest(microtime(true) - $startedAt);
+        $this->queueResponse($response, $keepAlive);
+
+        return $keepAlive;
+    }
+
+    /**
+     * HEAD is GET without a body: the client is told what it would have
+     * received. So the length is taken while the body is still here —
+     * ResponseFactory has usually set it already, and this covers responses
+     * built by hand — and only then are the bytes dropped.
+     *
+     * A 204 is the exception: its emptiness is implicit in the status line,
+     * and it must carry no Content-Length at all, not even 0.
+     */
+    private function withoutBody(HttpResponse $response): HttpResponse
+    {
+        if (!$response->status->framesBody()) {
+            return $response;
+        }
+
+        if (!$response->headers->has('Content-Length')) {
+            $response->headers->set('Content-Length', (string) $response->contentLength());
+        }
+
+        return new HttpResponse($response->version, $response->status, $response->headers, '');
+    }
+
+    /**
+     * Stamp the response with what happens to the connection next, encode
+     * it, and hand the bytes to the write buffer.
+     */
+    private function queueResponse(HttpResponse $response, bool $keepAlive): void
+    {
+        $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
+
+        $this->connection->queueWrite($this->encodeOrFail($response, $keepAlive));
     }
 
     /**
