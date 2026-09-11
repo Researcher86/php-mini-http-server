@@ -26,8 +26,9 @@ use Closure;
  * spell out inline. As one object it can be shared by every entry point
  * that needs "read bytes, parse requests, route them, write responses":
  *
- *     READ / parse / route / queue  →  WRITE / flush / drain  →  READ again
- *                                                           └→ close
+ *     READ  →  PROCESSING (parse, route, handle)  →  WRITING (flush)
+ *       ▲                                              │
+ *       └────────────── keep-alive ───────────────────┴→ close
  *
  * The demo server, the fork-based demo script and the integration tests
  * all hand this handler the same pieces (loop, server, parser, pipeline,
@@ -113,6 +114,7 @@ final readonly class ConnectionHandler
 
             $this->connection->doneWaitingForHeaders();
             $this->connection->readBuffer()->consume($parsed->consumedBytes);
+            $this->connection->startProcessing();
 
             $request = $parsed->request;
 

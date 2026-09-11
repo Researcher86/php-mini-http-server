@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\EventLoop;
 
+use App\Connection\ConnectionState;
 use App\EventLoop\SelectLoop;
 use App\Http\Headers\Headers;
 use App\Http\Middleware\ErrorHandlerMiddleware;
@@ -66,6 +67,28 @@ final class ServerRoundTripTest extends TestCase
     protected function tearDown(): void
     {
         $this->server->stop();
+    }
+
+    public function testConnectionReportsProcessingWhileTheHandlerRuns(): void
+    {
+        $seen = null;
+
+        $this->router->get('/state', function () use (&$seen): HttpResponse {
+            // Inside application code the connection is neither reading nor
+            // writing — PROCESSING is the lifecycle state that says so, and
+            // this is the only moment it can be observed from outside.
+            $seen = $this->server->connections()[0]->state();
+
+            return ResponseFactory::text('ok');
+        });
+
+        $responses = $this->exchange([
+            ['write' => "GET /state HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => true],
+        ]);
+
+        $this->assertSame(200, $responses[0]['status']);
+        $this->assertSame(ConnectionState::PROCESSING, $seen);
     }
 
     public function testKeepAliveServesSequentialRequestsOnOneConnection(): void
