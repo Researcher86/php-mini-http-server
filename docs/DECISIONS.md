@@ -136,9 +136,9 @@ client waiting for a body that never comes. That was a real hang, found by
 keep-alive tests, and it is why the encoder adds `Content-Length: 0` rather
 than leaving an empty response unframed.
 
-204 is the exception, and the only one: its emptiness is part of the status
-line's meaning, and it must carry no `Content-Length` at all — not even zero.
-`HttpStatusCode::framesBody()` is that rule, in one place, consulted by both
+204 and 304 are the exceptions: their emptiness is part of the status line's
+meaning, so this server emits no `Content-Length` for either.
+`HttpStatusCode::framesBody()` keeps that rule in one place, consulted by both
 the encoder and the HEAD path.
 
 One related bug is worth recording because the fix is so easy to undo. The
