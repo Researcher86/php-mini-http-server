@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace App\Tests\Metrics;
 
 use App\Metrics\ServerMetrics;
+use App\Tests\Support\FakeClock;
 use PHPUnit\Framework\TestCase;
 
 final class ServerMetricsTest extends TestCase
 {
     public function testStartsWithZeroCounters(): void
     {
-        $metrics = new ServerMetrics(startedAt: 1000.0);
+        $metrics = new ServerMetrics(new FakeClock(1000.0));
 
         $this->assertSame(0, $metrics->totalRequests());
         $this->assertSame(0, $metrics->bytesRead());
@@ -43,19 +44,18 @@ final class ServerMetricsTest extends TestCase
 
     public function testRequestsPerSecondUsesUptime(): void
     {
-        $metrics = new ServerMetrics(startedAt: 1000.0);
-        $metrics->recordRequest(0.0); // at t=1000
+        $clock = new FakeClock(1000.0);
+        $metrics = new ServerMetrics($clock);
 
-        // Four more requests arrive over the next 4 seconds.
-        for ($i = 0; $i < 4; $i++) {
+        // Ten requests over five seconds of uptime is two per second — an
+        // exact number now that the clock is the test's to move.
+        for ($i = 0; $i < 10; $i++) {
             $metrics->recordRequest(0.0);
         }
 
-        // Uptime is derived from microtime(true), which is far past 1000;
-        // the precise rps value is time-dependent, so just assert it is
-        // positive and finite rather than flaky.
-        $rps = $metrics->requestsPerSecond();
-        $this->assertGreaterThan(0.0, $rps);
-        $this->assertLessThan(1000.0, $rps);
+        $clock->advance(5.0);
+
+        $this->assertSame(5.0, $metrics->uptimeSeconds());
+        $this->assertSame(2.0, $metrics->requestsPerSecond());
     }
 }

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Server;
 
 use App\Connection\Connection;
+use App\Support\Clock;
+use App\Support\SystemClock;
 
 /**
  * A minimal TCP server owning a single listening socket.
@@ -35,6 +37,7 @@ final class Server
 
     public function __construct(
         private readonly ServerConfig $config,
+        private readonly Clock $clock = new SystemClock(),
     ) {
     }
 
@@ -92,7 +95,7 @@ final class Server
         stream_set_blocking($client, false);
 
         $id = $this->nextConnectionId++;
-        $connection = Connection::accepted($id, $client, (string) $peer);
+        $connection = Connection::accepted($id, $client, (string) $peer, $this->clock);
         $connection->connect();
 
         $this->connections[$id] = $connection;
@@ -109,9 +112,9 @@ final class Server
      *
      * @return list<Connection> the connections that were closed
      */
-    public function closeIdleConnections(float $idleSeconds, ?float $now = null): array
+    public function closeIdleConnections(float $idleSeconds): array
     {
-        $now ??= microtime(true);
+        $now = $this->clock->now();
         $closed = [];
 
         foreach ($this->connections as $connection) {
@@ -134,9 +137,9 @@ final class Server
      *
      * @return list<Connection> the connections that were closed
      */
-    public function closeSlowHeaderReads(float $timeoutSeconds, ?float $now = null): array
+    public function closeSlowHeaderReads(float $timeoutSeconds): array
     {
-        $now ??= microtime(true);
+        $now = $this->clock->now();
         $closed = [];
 
         foreach ($this->connections as $connection) {

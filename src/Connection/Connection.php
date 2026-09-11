@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Connection;
 
+use App\Support\Clock;
+use App\Support\SystemClock;
+
 /**
  * An explicit representation of one client TCP connection.
  *
@@ -38,16 +41,19 @@ final class Connection
     /** 0.0 when not mid-header; otherwise when the current header block started */
     private float $waitingForHeadersSince = 0.0;
 
+    private readonly float $connectedAt;
+
     public function __construct(
         public readonly int $id,
         private readonly mixed $socket,
         private readonly string $remoteAddress,
-        private readonly float $connectedAt,
+        private readonly Clock $clock = new SystemClock(),
     ) {
         $this->readBuffer = new ReadBuffer();
         $this->writeBuffer = new WriteBuffer();
         $this->state = ConnectionState::NEW;
-        $this->lastActivityAt = $connectedAt;
+        $this->connectedAt = $clock->now();
+        $this->lastActivityAt = $this->connectedAt;
     }
 
     /**
@@ -55,9 +61,9 @@ final class Connection
      *
      * @param resource $socket
      */
-    public static function accepted(int $id, mixed $socket, string $remoteAddress, ?float $now = null): self
+    public static function accepted(int $id, mixed $socket, string $remoteAddress, Clock $clock = new SystemClock()): self
     {
-        return new self($id, $socket, $remoteAddress, $now ?? microtime(true));
+        return new self($id, $socket, $remoteAddress, $clock);
     }
 
     public function connect(): void
@@ -141,7 +147,7 @@ final class Connection
     public function noteWaitingForHeaders(): void
     {
         if ($this->waitingForHeadersSince === 0.0) {
-            $this->waitingForHeadersSince = microtime(true);
+            $this->waitingForHeadersSince = $this->clock->now();
         }
     }
 
@@ -176,7 +182,7 @@ final class Connection
     {
         $this->readBuffer->append($data);
         $this->bytesRead += strlen($data);
-        $this->lastActivityAt = microtime(true);
+        $this->lastActivityAt = $this->clock->now();
     }
 
     public function readBuffer(): ReadBuffer
@@ -220,7 +226,7 @@ final class Connection
         $written = $this->writeBuffer->flushTo($stream);
 
         $this->bytesWritten += $written;
-        $this->lastActivityAt = microtime(true);
+        $this->lastActivityAt = $this->clock->now();
 
         return $written;
     }

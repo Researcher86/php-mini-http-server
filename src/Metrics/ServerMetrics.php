@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Metrics;
 
+use App\Support\Clock;
+use App\Support\SystemClock;
+
 /**
  * A tiny observability counter for the running server.
  *
@@ -24,9 +27,10 @@ final class ServerMetrics
 
     private float $totalRequestDuration = 0.0;
 
-    public function __construct(?float $startedAt = null)
-    {
-        $this->startedAt = $startedAt ?? microtime(true);
+    public function __construct(
+        private readonly Clock $clock = new SystemClock(),
+    ) {
+        $this->startedAt = $clock->now();
     }
 
     public function recordRequest(float $durationSeconds): void
@@ -62,7 +66,7 @@ final class ServerMetrics
 
     public function uptimeSeconds(): float
     {
-        return microtime(true) - $this->startedAt;
+        return $this->clock->now() - $this->startedAt;
     }
 
     public function requestsPerSecond(): float

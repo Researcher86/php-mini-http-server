@@ -7,6 +7,7 @@ namespace App\Tests\Connection;
 use App\Connection\Connection;
 use App\Connection\ConnectionException;
 use App\Connection\ConnectionState;
+use App\Tests\Support\FakeClock;
 use PHPUnit\Framework\TestCase;
 
 final class ConnectionTest extends TestCase
@@ -30,7 +31,7 @@ final class ConnectionTest extends TestCase
 
     public function testStartsInNewStateThenConnects(): void
     {
-        $connection = Connection::accepted(7, $this->socket, 'peer', now: 100.0);
+        $connection = Connection::accepted(7, $this->socket, 'peer', new FakeClock(100.0));
 
         $this->assertSame(ConnectionState::NEW, $connection->state());
         $this->assertFalse($connection->isClosed());

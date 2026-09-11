@@ -8,6 +8,7 @@ use App\Server\Server;
 use App\Server\ServerConfig;
 use App\Server\ServerStartException;
 use App\Server\ServerState;
+use App\Tests\Support\FakeClock;
 use PHPUnit\Framework\TestCase;
 
 final class ServerTest extends TestCase
@@ -16,10 +17,14 @@ final class ServerTest extends TestCase
 
     private ServerConfig $config;
 
+    /** Time moves only where a test says so, so the sweeps need no waiting. */
+    private FakeClock $clock;
+
     protected function setUp(): void
     {
         $this->config = new ServerConfig(host: '127.0.0.1', port: 0);
-        $this->server = new Server($this->config);
+        $this->clock = new FakeClock();
+        $this->server = new Server($this->config, $this->clock);
     }
 
     protected function tearDown(): void
@@ -131,7 +136,9 @@ final class ServerTest extends TestCase
         $connection = $this->server->accept();
         $this->assertNotNull($connection);
 
-        $closed = $this->server->closeIdleConnections(5.0, now: $connection->connectedAt() + 10.0);
+        $this->clock->advance(10.0);
+
+        $closed = $this->server->closeIdleConnections(5.0);
 
         $this->assertSame([$connection], $closed);
         $this->assertSame(0, $this->server->connectionCount());
@@ -150,9 +157,10 @@ final class ServerTest extends TestCase
         $connection = $this->server->accept();
         $this->assertNotNull($connection);
 
-        $connection->appendRead('data'); // activity updates lastActivityAt
+        $this->clock->advance(2.0);
+        $connection->appendRead('data'); // activity resets the idle clock
 
-        $closed = $this->server->closeIdleConnections(5.0, now: $connection->connectedAt() + 2.0);
+        $closed = $this->server->closeIdleConnections(5.0);
 
         $this->assertSame([], $closed);
         $this->assertSame(1, $this->server->connectionCount());
@@ -177,7 +185,9 @@ final class ServerTest extends TestCase
         $this->assertNotNull($a);
         $this->assertNotNull($b);
 
-        $closed = $this->server->closeIdleConnections(1.0, now: $a->connectedAt() + 5.0);
+        $this->clock->advance(5.0);
+
+        $closed = $this->server->closeIdleConnections(1.0);
 
         $this->assertCount(2, $closed);
         $this->assertSame(0, $this->server->connectionCount());
@@ -278,8 +288,9 @@ final class ServerTest extends TestCase
         $this->assertNotNull($connection);
 
         $connection->noteWaitingForHeaders();
+        $this->clock->advance(10.0);
 
-        $closed = $this->server->closeSlowHeaderReads(5.0, now: $connection->waitingForHeadersSince() + 10.0);
+        $closed = $this->server->closeSlowHeaderReads(5.0);
 
         $this->assertSame([$connection], $closed);
         $this->assertSame(0, $this->server->connectionCount());
@@ -298,8 +309,9 @@ final class ServerTest extends TestCase
         $this->assertNotNull($connection);
         $connection->noteWaitingForHeaders();
         $connection->doneWaitingForHeaders();
+        $this->clock->advance(100.0);
 
-        $closed = $this->server->closeSlowHeaderReads(1.0, now: microtime(true) + 100.0);
+        $closed = $this->server->closeSlowHeaderReads(1.0);
 
         $this->assertSame([], $closed);
         $this->assertSame(1, $this->server->connectionCount());

@@ -169,7 +169,10 @@ function runLevel(int $port, int $concurrency, int $requests): array
         $workers[] = $pid;
     }
 
-    $started = microtime(true);
+    // Durations throughout the benchmark are measured with hrtime(), which
+    // is monotonic: an NTP correction mid-run would otherwise show up as a
+    // negative latency or a nonsense rps.
+    $started = hrtime(true);
     file_put_contents($goFile, 'go');
 
     $latencies = [];
@@ -189,7 +192,7 @@ function runLevel(int $port, int $concurrency, int $requests): array
     }
 
     @unlink($goFile);
-    $elapsed = microtime(true) - $started;
+    $elapsed = (hrtime(true) - $started) / 1e9;
     $total = count($latencies);
 
     sort($latencies);
@@ -235,7 +238,7 @@ function runClient(int $port, int $requests, string $goFile): never
     $lines = [];
 
     for ($i = 0; $i < $requests; $i++) {
-        $start = microtime(true);
+        $start = hrtime(true);
 
         fwrite($socket, "GET /hello HTTP/1.1\r\nHost: bench\r\n\r\n");
 
@@ -260,7 +263,7 @@ function runClient(int $port, int $requests, string $goFile): never
             $body .= fread($socket, 8192);
         }
 
-        $lines[] = (string) ((microtime(true) - $start) * 1000);
+        $lines[] = (string) ((hrtime(true) - $start) / 1e6);
     }
 
     fclose($socket);

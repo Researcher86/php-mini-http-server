@@ -176,7 +176,10 @@ final readonly class ConnectionHandler
      */
     private function serve(HttpRequest $request): bool
     {
-        $startedAt = microtime(true);
+        // hrtime(), not the Clock: this is "how long did that take", and a
+        // monotonic reading cannot come out negative if the wall clock is
+        // corrected mid-request. See the note on Clock.
+        $startedAt = hrtime(true);
 
         $keepAlive = $request->wantsKeepAlive();
         $response = $this->application->handle($request);
@@ -185,7 +188,7 @@ final readonly class ConnectionHandler
             $response = $this->withoutBody($response);
         }
 
-        $this->metrics->recordRequest(microtime(true) - $startedAt);
+        $this->metrics->recordRequest((hrtime(true) - $startedAt) / 1e9);
         $this->queueResponse($response, $keepAlive);
 
         return $keepAlive;

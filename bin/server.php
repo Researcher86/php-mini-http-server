@@ -128,9 +128,10 @@ $application->add(new ErrorHandlerMiddleware());
 $application->add(new class implements MiddlewareInterface {
     public function process(HttpRequest $request, RequestHandler $next): HttpResponse
     {
-        $started = microtime(true);
+        // hrtime: a duration, so a monotonic reading (see App\Support\Clock).
+        $started = hrtime(true);
         $response = $next->handle($request);
-        $response->headers->set('X-Response-Time', sprintf('%.4f', microtime(true) - $started));
+        $response->headers->set('X-Response-Time', sprintf('%.4f', (hrtime(true) - $started) / 1e9));
 
         return $response;
     }
