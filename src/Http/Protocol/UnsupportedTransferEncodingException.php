@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Protocol;
 
-use RuntimeException;
+use App\Http\Response\HttpStatusCode;
 
 /**
  * The request applies a transfer coding this server cannot decode.
@@ -15,6 +15,10 @@ use RuntimeException;
  * parsed as the next pipelined request, which is request smuggling. The
  * honest answer is 501 Not Implemented.
  */
-final class UnsupportedTransferEncodingException extends RuntimeException
+final class UnsupportedTransferEncodingException extends RequestException
 {
+    public function __construct(string $message)
+    {
+        parent::__construct($message, HttpStatusCode::NOT_IMPLEMENTED);
+    }
 }

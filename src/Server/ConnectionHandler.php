@@ -8,13 +8,10 @@ use App\Connection\Connection;
 use App\Connection\WriteBufferException;
 use App\EventLoop\SelectLoop;
 use App\Http\Handler\RequestHandler;
-use App\Http\Protocol\BodyTooLargeException;
-use App\Http\Protocol\HeaderTooLargeException;
 use App\Http\Protocol\HttpMethod;
 use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\MalformedRequestException;
+use App\Http\Protocol\RequestException;
 use App\Http\Protocol\ResponseEncoder;
-use App\Http\Protocol\UnsupportedTransferEncodingException;
 use App\Http\Response\HttpResponse;
 use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
@@ -96,23 +93,11 @@ final readonly class ConnectionHandler
         while (true) {
             try {
                 $parsed = $this->parser->parse((string) $this->connection->readBuffer());
-            } catch (MalformedRequestException $e) {
-                $this->queueError(HttpStatusCode::BAD_REQUEST, 'Bad Request', $e);
-                $closeAfterDrain = true;
-                $queued = true;
-                break;
-            } catch (HeaderTooLargeException $e) {
-                $this->queueError(HttpStatusCode::HEADER_TOO_LARGE, 'Request Header Fields Too Large', $e);
-                $closeAfterDrain = true;
-                $queued = true;
-                break;
-            } catch (BodyTooLargeException $e) {
-                $this->queueError(HttpStatusCode::PAYLOAD_TOO_LARGE, 'Payload Too Large', $e);
-                $closeAfterDrain = true;
-                $queued = true;
-                break;
-            } catch (UnsupportedTransferEncodingException $e) {
-                $this->queueError(HttpStatusCode::NOT_IMPLEMENTED, 'Not Implemented', $e);
+            } catch (RequestException $e) {
+                // Parsing failed, so where this request ends is unknown and
+                // every byte after it is suspect. Answer with the status the
+                // exception carries, then close.
+                $this->queueError($e);
                 $closeAfterDrain = true;
                 $queued = true;
                 break;
@@ -248,12 +233,14 @@ final readonly class ConnectionHandler
      * close once the response is flushed — after 400/413/431/501 the request
      * stream is already broken and there is no safe way to reuse it.
      */
-    private function queueError(HttpStatusCode $status, string $reason, \Throwable $e): void
+    private function queueError(RequestException $e): void
     {
+        $reason = $e->status->reasonPhrase();
+
         $this->logger->log(sprintf('#%d %s: %s', $this->connection->id, $reason, $e->getMessage()));
 
         $this->connection->queueWrite($this->encoder->encode(
-            ResponseFactory::text($reason . PHP_EOL, $status),
+            ResponseFactory::text($reason . PHP_EOL, $e->status),
         ));
     }
 

@@ -5,10 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\Http\Handler\RequestHandler;
-use App\Http\Protocol\BodyTooLargeException;
-use App\Http\Protocol\HeaderTooLargeException;
-use App\Http\Protocol\MalformedRequestException;
-use App\Http\Protocol\UnsupportedTransferEncodingException;
+use App\Http\Protocol\RequestException;
 use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
 use App\Http\Response\HttpStatusCode;
@@ -38,28 +35,27 @@ final class ErrorHandlerMiddleware implements MiddlewareInterface
     {
         try {
             return $next->handle($request);
-        } catch (MalformedRequestException) {
-            return $this->error(HttpStatusCode::BAD_REQUEST, 'Bad Request');
         } catch (RouteNotFoundException) {
-            return $this->error(HttpStatusCode::NOT_FOUND, 'Not Found');
+            return $this->error(HttpStatusCode::NOT_FOUND);
         } catch (MethodNotAllowedException $e) {
-            $response = $this->error(HttpStatusCode::METHOD_NOT_ALLOWED, 'Method Not Allowed');
+            $response = $this->error(HttpStatusCode::METHOD_NOT_ALLOWED);
             $response->headers->set('Allow', implode(', ', $e->allowed));
 
             return $response;
-        } catch (HeaderTooLargeException) {
-            return $this->error(HttpStatusCode::HEADER_TOO_LARGE, 'Request Header Fields Too Large');
-        } catch (BodyTooLargeException) {
-            return $this->error(HttpStatusCode::PAYLOAD_TOO_LARGE, 'Payload Too Large');
-        } catch (UnsupportedTransferEncodingException) {
-            return $this->error(HttpStatusCode::NOT_IMPLEMENTED, 'Not Implemented');
+        } catch (RequestException $e) {
+            // Every refusal the protocol layer raises knows its own status.
+            return $this->error($e->status);
         } catch (\Throwable) {
-            return $this->error(HttpStatusCode::INTERNAL_SERVER_ERROR, 'Internal Server Error');
+            return $this->error(HttpStatusCode::INTERNAL_SERVER_ERROR);
         }
     }
 
-    private function error(HttpStatusCode $status, string $message): HttpResponse
+    /**
+     * The body is the status' own reason phrase, so "404" and "Not Found"
+     * cannot drift apart.
+     */
+    private function error(HttpStatusCode $status): HttpResponse
     {
-        return ResponseFactory::text($message . PHP_EOL, $status);
+        return ResponseFactory::text($status->reasonPhrase() . PHP_EOL, $status);
     }
 }
