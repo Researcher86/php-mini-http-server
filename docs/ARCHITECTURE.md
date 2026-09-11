@@ -6,7 +6,8 @@ How the pieces fit together, in the order a request meets them. Two
 companion documents answer different questions: [PHASES.md](PHASES.md) is
 how this was built, one capability at a time, with the tests that hold each
 step; [DECISIONS.md](DECISIONS.md) is why it turned out this way — what was
-rejected, and which bugs changed a design.
+rejected, and which bugs changed a design; and
+[FAILURE-MODEL.md](FAILURE-MODEL.md) is what it does not promise.
 
 ---
 

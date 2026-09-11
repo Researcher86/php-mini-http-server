@@ -188,7 +188,8 @@ php-mini-http-server/
 ├── docs/
 │   ├── ARCHITECTURE.md     how the pieces fit together
 │   ├── PHASES.md           how it was built, phase by phase
-│   └── DECISIONS.md        why it is the way it is
+│   ├── DECISIONS.md        why it is the way it is
+│   └── FAILURE-MODEL.md    what it does not promise
 │
 ├── README.md
 ├── Makefile
@@ -876,7 +877,10 @@ During draining:
 
 # Failure Scenarios
 
-One of the main goals of this project is experimentation.
+One of the main goals of this project is experimentation. Each of these is
+something the server is built to survive, and each has a test holding it
+to that. What it does **not** survive — and what it never promised in the
+first place — is [docs/FAILURE-MODEL.md](docs/FAILURE-MODEL.md).
 
 ## Partial Request
 
@@ -1164,7 +1168,8 @@ individual test method where one test answers for one line of the plan.
 The decisions underneath — what was rejected, which failures were only found
 by running the thing, and what is deliberately missing — are in
 **[docs/DECISIONS.md](docs/DECISIONS.md)**. How the finished pieces fit
-together is **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+together is **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**, and the limits
+they add up to are **[docs/FAILURE-MODEL.md](docs/FAILURE-MODEL.md)**.
 
 ---
 

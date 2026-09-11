@@ -14,6 +14,8 @@ Two things that used to live here have moved:
 
 - **Why the design turned out this way**, what was rejected, and the bugs
   that changed a decision: [DECISIONS.md](DECISIONS.md).
+- **What the finished server does not promise** — its limits and the
+  guarantees it never made: [FAILURE-MODEL.md](FAILURE-MODEL.md).
 - **The planning scaffolding** — the suggested build order, the goal
   statement — is gone. It was advice to a past self, and what survived of it
   is in [the README](../README.md).
