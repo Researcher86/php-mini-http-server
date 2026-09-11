@@ -106,6 +106,55 @@ final class SelectLoopTest extends TestCase
         fclose($clientB);
     }
 
+    public function testASignalDuringTheWaitDoesNotMakeIdleStreamsLookReady(): void
+    {
+        [$server, $client] = $this->socketPair();
+
+        $loop = $this->loop;
+        $dispatched = 0;
+
+        // An idle connection: nothing will ever arrive on it during this
+        // test, so its handler must never run.
+        $this->loop->onReadable($server, static function () use (&$dispatched): void {
+            $dispatched++;
+        });
+
+        pcntl_async_signals(true);
+        pcntl_signal(SIGUSR1, static fn () => null);
+
+        // The signal has to land while the loop is blocked in select(),
+        // which is what a SIGTERM asking for a graceful shutdown does. A
+        // child is the only way to deliver it from outside that wait.
+        $parent = posix_getpid();
+        $pid = pcntl_fork();
+        $this->assertNotSame(-1, $pid);
+
+        if ($pid === 0) {
+            usleep(50_000);
+            posix_kill($parent, SIGUSR1);
+            // SIGKILL rather than exit(): the child inherited PHPUnit, and
+            // a clean exit would run its shutdown handlers and report a
+            // second set of results.
+            posix_kill(posix_getpid(), SIGKILL);
+        }
+
+        $this->loop->addTimer(0.3, static fn () => $loop->stop());
+        $this->loop->run();
+
+        pcntl_waitpid($pid, $status);
+        pcntl_signal(SIGUSR1, SIG_DFL);
+
+        // stream_select() reports an interruption by returning false and
+        // leaving the arrays it was given untouched — which reads exactly
+        // like "every watched stream is ready". Acting on that hands each
+        // idle connection a read that returns nothing, and a read that
+        // returns nothing is how a handler recognises a closed peer.
+        $this->assertSame(0, $dispatched);
+
+        fclose($server);
+        fclose($client);
+    }
+
     public function testWritableHandlerFires(): void
     {
         [$server, $client] = $this->socketPair();

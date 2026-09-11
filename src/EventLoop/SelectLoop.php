@@ -268,11 +268,24 @@ final class SelectLoop implements EventLoop
             // this call: PHP cannot build a valid descriptor set for a
             // resource that no longer exists. Neither condition is a loop
             // failure — drop stale watchers and re-wait on the next pass.
-            @stream_select($read, $write, $except, $seconds, $microseconds);
+            $ready = @stream_select($read, $write, $except, $seconds, $microseconds);
         } catch (ValueError|TypeError) {
             // A watched stream vanished between loop iterations — drop the dead ones.
             $this->dropClosedStreams();
 
+            return [[], []];
+        }
+
+        // false means the wait was cut short — in practice a handled signal
+        // (EINTR), which is exactly what a SIGTERM asking for a graceful
+        // shutdown looks like from in here. The arrays are then left as
+        // they were passed in, which reads identically to "every watched
+        // stream is ready". Dispatching on that hands every idle
+        // connection a read that returns nothing, and a read that returns
+        // nothing is how a handler recognises a closed peer — so the
+        // server would drop every quiet client the moment it was signalled.
+        // Nothing is ready; the next pass waits again.
+        if ($ready === false) {
             return [[], []];
         }
 
