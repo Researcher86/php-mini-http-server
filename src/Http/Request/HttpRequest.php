@@ -25,11 +25,6 @@ final readonly class HttpRequest
     ) {
     }
 
-    public function uri(): string
-    {
-        return $this->target;
-    }
-
     /**
      * The path portion of the target, without the query string.
      * GET /users/42?page=2 → /users/42

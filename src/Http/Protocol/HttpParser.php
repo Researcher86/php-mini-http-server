@@ -20,13 +20,13 @@ use App\Http\Request\HttpRequest;
  * terminator "\r\n\r\n" and, for body-carrying requests, by comparing the
  * declared Content-Length against the bytes actually available.
  */
-final class HttpParser
+final readonly class HttpParser
 {
     private const string HEADER_TERMINATOR = "\r\n\r\n";
 
     public function __construct(
-        private readonly int $maxHeaderBytes = 8192,
-        private readonly int $maxBodyBytes = 1_048_576,
+        private int $maxHeaderBytes = 8192,
+        private int $maxBodyBytes = 1_048_576,
     ) {
     }
 

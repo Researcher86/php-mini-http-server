@@ -79,12 +79,10 @@ final class Router implements RequestHandler
             return $handler($request, []);
         }
 
-        $route = $this->matchPattern($method, $path);
+        $matched = $this->matchPattern($method, $path);
 
-        if ($route !== null) {
-            $params = [];
-            preg_match($route->regex, $path, $params);
-            $params = array_filter($params, 'is_string', ARRAY_FILTER_USE_KEY);
+        if ($matched !== null) {
+            [$route, $params] = $matched;
 
             return ($route->handler)($request, $params);
         }
@@ -129,14 +127,26 @@ final class Router implements RequestHandler
     }
 
     /**
-     * First matching pattern in registration order.
+     * First matching pattern in registration order. Returns both the route
+     * and the extracted parameters in one call, so dispatch() never has to
+     * run the regex a second time.
+     *
+     * @return array{0: Route, 1: array<string, string>}|null
      */
-    private function matchPattern(string $method, string $path): ?Route
+    private function matchPattern(string $method, string $path): ?array
     {
         foreach ($this->patterns[$method] ?? [] as $route) {
-            if (preg_match($route->regex, $path) === 1) {
-                return $route;
+            $matches = [];
+            preg_match($route->regex, $path, $matches);
+
+            if ($matches === []) {
+                continue;
             }
+
+            return [
+                $route,
+                array_filter($matches, 'is_string', ARRAY_FILTER_USE_KEY),
+            ];
         }
 
         return null;

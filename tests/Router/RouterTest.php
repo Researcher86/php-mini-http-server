@@ -79,7 +79,7 @@ final class RouterTest extends TestCase
             $this->router->dispatch($this->request('/hello', HttpMethod::POST));
             $this->fail('Expected MethodNotAllowedException');
         } catch (MethodNotAllowedException $e) {
-            $this->assertSame('GET, HEAD', $e->allowedMethods());
+            $this->assertSame('GET, HEAD', implode(', ', $e->allowed));
         }
     }
 

@@ -42,7 +42,7 @@ final class ErrorHandlerMiddleware implements MiddlewareInterface
             return $this->error(HttpStatusCode::NOT_FOUND, 'Not Found');
         } catch (MethodNotAllowedException $e) {
             $response = $this->error(HttpStatusCode::METHOD_NOT_ALLOWED, 'Method Not Allowed');
-            $response->headers->set('Allow', $e->allowedMethods());
+            $response->headers->set('Allow', implode(', ', $e->allowed));
 
             return $response;
         } catch (HeaderTooLargeException) {

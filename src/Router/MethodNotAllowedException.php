@@ -21,9 +21,4 @@ final class MethodNotAllowedException extends RuntimeException
     ) {
         parent::__construct(sprintf('Method not allowed. Allowed: %s', implode(', ', $allowed)));
     }
-
-    public function allowedMethods(): string
-    {
-        return implode(', ', $this->allowed);
-    }
 }
