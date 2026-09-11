@@ -38,33 +38,8 @@ final class ReadBufferTest extends TestCase
         $this->assertSame(19, $this->buffer->length());
     }
 
-    public function testContainsFindsSubstrings(): void
-    {
-        $this->buffer->append("POST /users HTTP/1.1\r\nHost: localhost\r\n\r\n");
 
-        $this->assertTrue($this->buffer->contains("POST"));
-        $this->assertTrue($this->buffer->contains("\r\n\r\n"));
-        $this->assertTrue($this->buffer->contains("Host: localhost"));
-        $this->assertFalse($this->buffer->contains("GET"));
-    }
 
-    public function testExtractThroughReturnsNullWhileIncomplete(): void
-    {
-        $this->buffer->append("GET / HTTP/1.1\r\n");
-
-        $this->assertNull($this->buffer->extractThrough("\r\n\r\n"));
-        $this->assertSame("GET / HTTP/1.1\r\n", (string) $this->buffer);
-    }
-
-    public function testExtractThroughReturnsMessageAndKeepsTheRest(): void
-    {
-        $this->buffer->append("GET / HTTP/1.1\r\n\r\nGET /n HTTP/1.1\r\n\r\n");
-
-        $first = $this->buffer->extractThrough("\r\n\r\n");
-
-        $this->assertSame("GET / HTTP/1.1\r\n\r\n", $first);
-        $this->assertSame("GET /n HTTP/1.1\r\n\r\n", (string) $this->buffer);
-    }
 
     public function testConsumeDropsBytesFromTheHead(): void
     {
@@ -85,13 +60,4 @@ final class ReadBufferTest extends TestCase
         $this->assertSame('abc', (string) $this->buffer);
     }
 
-    public function testResetClearsEverything(): void
-    {
-        $this->buffer->append('leftover');
-
-        $this->buffer->reset();
-
-        $this->assertTrue($this->buffer->isEmpty());
-        $this->assertSame(0, $this->buffer->length());
-    }
 }

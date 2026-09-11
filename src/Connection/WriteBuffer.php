@@ -75,11 +75,6 @@ final class WriteBuffer
         return $written;
     }
 
-    public function reset(): void
-    {
-        $this->data = '';
-    }
-
     public function __toString(): string
     {
         return $this->data;

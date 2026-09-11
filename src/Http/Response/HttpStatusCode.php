@@ -69,14 +69,6 @@ enum HttpStatusCode: int
      */
     public function framesBody(): bool
     {
-        return $this->value !== self::NO_CONTENT->value;
-    }
-
-    /**
-     * @throws \ValueError when $code is not one of the known status codes
-     */
-    public static function fromInt(int $code): self
-    {
-        return self::from($code);
+        return $this !== self::NO_CONTENT;
     }
 }

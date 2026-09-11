@@ -84,14 +84,6 @@ final class ConnectionTest extends TestCase
         $this->assertSame('/hello HTTP/1.1', (string) $this->connection->readBuffer());
     }
 
-    public function testCompleteRequestIsDetectedOnlyAfterHeaderTerminator(): void
-    {
-        $this->connection->appendRead("GET / HTTP/1.1\r\nHost: localhost");
-        $this->assertFalse($this->connection->hasCompleteRequest());
-
-        $this->connection->appendRead("\r\n\r\n");
-        $this->assertTrue($this->connection->hasCompleteRequest());
-    }
 
     public function testWriteBufferAccumulates(): void
     {

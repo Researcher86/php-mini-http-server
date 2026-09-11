@@ -146,16 +146,6 @@ final class SelectLoop implements EventLoop
         return count($this->readable);
     }
 
-    public function watchedWritableCount(): int
-    {
-        return count($this->writable);
-    }
-
-    public function timerCount(): int
-    {
-        return count($this->timers);
-    }
-
     private function scheduleTimer(Timer $timer): int
     {
         $this->timers[$timer->id] = $timer;
@@ -243,7 +233,7 @@ final class SelectLoop implements EventLoop
             // resource that no longer exists. Neither condition is a loop
             // failure — drop stale watchers and re-wait on the next pass.
             @stream_select($read, $write, $except, $seconds, $microseconds);
-        } catch (\ValueError|\TypeError) {
+        } catch (ValueError|TypeError) {
             // A watched stream vanished between loop iterations — drop the dead ones.
             $this->dropClosedStreams();
 

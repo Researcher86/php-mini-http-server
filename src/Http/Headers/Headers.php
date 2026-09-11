@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Headers;
 
+use App\Http\Protocol\MalformedRequestException;
+
 /**
  * An HTTP header collection shared by requests and responses.
  *
@@ -52,14 +54,6 @@ final class Headers
     }
 
     /**
-     * @return array<string, string> lowercased name => value
-     */
-    public function all(): array
-    {
-        return $this->values;
-    }
-
-    /**
      * @return array<string, string> original name => value
      */
     public function normalized(): array
@@ -71,16 +65,6 @@ final class Headers
         }
 
         return $normalized;
-    }
-
-    public function count(): int
-    {
-        return count($this->values);
-    }
-
-    public function isEmpty(): bool
-    {
-        return $this->values === [];
     }
 
     public static function fromLines(string $head): self
@@ -96,9 +80,7 @@ final class Headers
             $colon = strpos($line, ':');
 
             if ($colon === false || $colon === 0) {
-                throw new \App\Http\Protocol\MalformedRequestException(
-                    sprintf('Malformed header line: %s', $line),
-                );
+                throw new MalformedRequestException(sprintf('Malformed header line: %s', $line));
             }
 
             $name = trim(substr($line, 0, $colon));

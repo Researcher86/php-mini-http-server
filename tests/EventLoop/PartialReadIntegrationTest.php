@@ -6,12 +6,17 @@ namespace App\Tests\EventLoop;
 
 use App\Connection\Connection;
 use App\EventLoop\SelectLoop;
+use App\Http\Protocol\HttpParser;
+use App\Http\Protocol\ParsedRequest;
 use PHPUnit\Framework\TestCase;
 
 /**
  * Phase 4 story in one test: an HTTP request split across several TCP
- * reads must accumulate in the connection's read buffer and only be seen
- * as "complete" once the header terminator has fully arrived.
+ * reads must accumulate in the connection's read buffer, and the parser
+ * must refuse to see a request there until the last byte of it arrives.
+ *
+ * The parser is the one that decides — the buffer only holds bytes — so
+ * these tests ask it, exactly as ConnectionHandler does.
  */
 final class PartialReadIntegrationTest extends TestCase
 {
@@ -25,6 +30,8 @@ final class PartialReadIntegrationTest extends TestCase
 
     private SelectLoop $loop;
 
+    private HttpParser $parser;
+
     protected function setUp(): void
     {
         $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
@@ -36,6 +43,7 @@ final class PartialReadIntegrationTest extends TestCase
         $this->connection->startReading();
 
         $this->loop = new SelectLoop();
+        $this->parser = new HttpParser();
     }
 
     protected function tearDown(): void
@@ -52,18 +60,18 @@ final class PartialReadIntegrationTest extends TestCase
 
         $this->runLoopFor(0.03);
 
-        $this->assertFalse($this->connection->hasCompleteRequest());
+        $this->assertNull($this->parse());
         $this->assertSame("GET /hel", (string) $this->connection->readBuffer());
 
         fwrite($this->clientSide, "lo HTTP/1.1\r\nHost: localhost\r\n\r\n");
 
         $this->runLoopFor(0.03);
 
-        $this->assertTrue($this->connection->hasCompleteRequest());
-        $this->assertSame(
-            "GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n",
-            (string) $this->connection->readBuffer(),
-        );
+        $parsed = $this->parse();
+
+        $this->assertNotNull($parsed);
+        $this->assertSame('/hello', $parsed->request->target);
+        $this->assertSame($this->connection->readBuffer()->length(), $parsed->consumedBytes);
     }
 
     public function testTwoRequestsInOneReadAreKeptInTheBuffer(): void
@@ -74,9 +82,15 @@ final class PartialReadIntegrationTest extends TestCase
 
         $this->runLoopFor(0.05);
 
-        $first = $this->connection->readBuffer()->extractThrough("\r\n\r\n");
+        $first = $this->parse();
 
-        $this->assertSame("GET /a HTTP/1.1\r\n\r\n", $first);
+        $this->assertNotNull($first);
+        $this->assertSame('/a', $first->request->target);
+
+        // Only the first request's bytes are dropped; the second one waits
+        // its turn in the buffer, which is what Phase 15 pipelining builds on.
+        $this->connection->readBuffer()->consume($first->consumedBytes);
+
         $this->assertSame("GET /b HTTP/1.1\r\n\r\n", (string) $this->connection->readBuffer());
     }
 
@@ -93,6 +107,11 @@ final class PartialReadIntegrationTest extends TestCase
                 $this->connection->appendRead($data);
             }
         });
+    }
+
+    private function parse(): ?ParsedRequest
+    {
+        return $this->parser->parse((string) $this->connection->readBuffer());
     }
 
     private function runLoopFor(float $seconds): void

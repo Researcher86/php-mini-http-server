@@ -184,17 +184,6 @@ final class Connection
         return $this->readBuffer;
     }
 
-    /**
-     * True when the accumulated bytes contain a full request header block.
-     *
-     * Header delimiter choice "\r\n\r\n" is HTTP's own; the parser will teach
-     * the buffer to also respect body lengths in a later phase.
-     */
-    public function hasCompleteRequest(): bool
-    {
-        return $this->readBuffer->contains("\r\n\r\n");
-    }
-
     public function queueWrite(string $data): void
     {
         $this->assertNotClosed('queueWrite');

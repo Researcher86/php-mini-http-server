@@ -61,6 +61,6 @@ final class ResponseFactory
             return $status;
         }
 
-        return HttpStatusCode::fromInt($status);
+        return HttpStatusCode::from($status);
     }
 }

@@ -99,15 +99,6 @@ final class WriteBufferTest extends TestCase
         $buffer->flushTo($server);
     }
 
-    public function testResetDiscardsEverything(): void
-    {
-        $buffer = new WriteBuffer();
-        $buffer->append('data');
-        $buffer->reset();
-
-        $this->assertTrue($buffer->isEmpty());
-        $this->assertSame('', (string) $buffer);
-    }
 
     /**
      * @return array{resource, resource}
