@@ -12,6 +12,7 @@ use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
 use App\Router\MethodNotAllowedException;
 use App\Router\RouteNotFoundException;
+use Throwable;
 
 /**
  * Turns failures into HTTP error responses instead of crashing the process.
@@ -45,7 +46,7 @@ final class ErrorHandlerMiddleware implements MiddlewareInterface
         } catch (RequestException $e) {
             // Every refusal the protocol layer raises knows its own status.
             return $this->error($e->status);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return $this->error(HttpStatusCode::INTERNAL_SERVER_ERROR);
         }
     }

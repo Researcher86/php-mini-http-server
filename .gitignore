@@ -31,3 +31,4 @@ Thumbs.db
 
 # Composer
 composer.phar
+.php-cs-fixer.cache

@@ -19,6 +19,7 @@ use App\Http\Response\ResponseFactory;
 use App\Metrics\ServerMetrics;
 use App\Support\Logger;
 use Closure;
+use Throwable;
 
 /**
  * Drives a single accepted connection through its whole life.
@@ -242,7 +243,7 @@ final readonly class ConnectionHandler
     {
         try {
             return $this->encoder->encode($response);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->log(sprintf(
                 '#%d response is not encodable: %s',
                 $this->connection->id,

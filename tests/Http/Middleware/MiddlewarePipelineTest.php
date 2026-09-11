@@ -108,7 +108,7 @@ final class MiddlewarePipelineTest extends TestCase
     {
         $log = $this->log;
 
-        return new class($name, $log) implements MiddlewareInterface {
+        return new class ($name, $log) implements MiddlewareInterface {
             public function __construct(private string $name, private OrderLog $log)
             {
             }
@@ -128,7 +128,7 @@ final class MiddlewarePipelineTest extends TestCase
     {
         $log = $this->log;
 
-        return new class($log) implements MiddlewareInterface {
+        return new class ($log) implements MiddlewareInterface {
             public function __construct(private OrderLog $log)
             {
             }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Connection;
 
+use TypeError;
+
 /**
  * The write side of a TCP connection.
  *
@@ -60,7 +62,7 @@ final class WriteBuffer
 
         try {
             $written = @fwrite($stream, $this->data);
-        } catch (\TypeError) {
+        } catch (TypeError) {
             throw new WriteBufferException('Failed to write to socket: stream is not usable.');
         }
 

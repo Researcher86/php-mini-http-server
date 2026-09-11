@@ -22,7 +22,7 @@ final class LoggingMiddlewareTest extends TestCase
     {
         /** @var ArrayObject<int, string> $captured */
         $captured = new ArrayObject();
-        $logger = new class($captured) implements Logger {
+        $logger = new class ($captured) implements Logger {
             /** @var ArrayObject<int, string> */
             private ArrayObject $captured;
 

@@ -45,7 +45,8 @@ foreach ($clients as $client) {
 $metrics = exampleMetrics();
 
 printf("\nAfter closing them: active_connections = %d\n", (int) ($metrics['active_connections'] ?? 0));
-printf("The loop made %d passes in total, and was busy for %.1f%% of its life.\n",
+printf(
+    "The loop made %d passes in total, and was busy for %.1f%% of its life.\n",
     (int) ($metrics['loop_iterations'] ?? 0),
     ($metrics['loop_utilisation'] ?? 0.0) * 100,
 );

@@ -55,7 +55,8 @@ $perRequest = (hrtime(true) - $started) / 1e6;
 
 printf("%d requests over one kept-alive connection: %7.2f ms\n", $requests, $keptAlive);
 printf("%d requests, a new connection each:        %7.2f ms\n", $requests, $perRequest);
-printf("\nKeep-alive saved %.2f ms — %.0f%% — and it is all connection setup.\n",
+printf(
+    "\nKeep-alive saved %.2f ms — %.0f%% — and it is all connection setup.\n",
     $perRequest - $keptAlive,
     $perRequest > 0.0 ? (1 - $keptAlive / $perRequest) * 100 : 0.0,
 );

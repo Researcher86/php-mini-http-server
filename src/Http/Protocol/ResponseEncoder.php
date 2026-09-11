@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Protocol;
 
 use App\Http\Response\HttpResponse;
+use RuntimeException;
 
 /**
  * Turns an HttpResponse into the exact bytes that go on the wire.
@@ -53,7 +54,7 @@ final class ResponseEncoder
             // returned by the time encoding starts.
             if (str_contains($name, "\r") || str_contains($name, "\n")
                 || str_contains($value, "\r") || str_contains($value, "\n")) {
-                throw new \RuntimeException(sprintf(
+                throw new RuntimeException(sprintf(
                     'Header name or value contains CR/LF: %s',
                     $name,
                 ));

@@ -17,7 +17,10 @@ use App\Http\Response\HttpResponse;
 use App\Http\Response\ResponseFactory;
 use App\Router\MethodNotAllowedException;
 use App\Router\RouteNotFoundException;
+use Closure;
+use Error;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 final class ErrorHandlerMiddlewareTest extends TestCase
 {
@@ -81,7 +84,7 @@ final class ErrorHandlerMiddlewareTest extends TestCase
     public function testMapsUnknownExceptionTo500(): void
     {
         $response = $this->handle(static function (HttpRequest $r): HttpResponse {
-            throw new \RuntimeException('database exploded');
+            throw new RuntimeException('database exploded');
         });
 
         $this->assertSame(500, $response->statusCode());
@@ -95,7 +98,7 @@ final class ErrorHandlerMiddlewareTest extends TestCase
         $failingNext = new class implements RequestHandler {
             public function handle(HttpRequest $request): HttpResponse
             {
-                throw new \Error('fatal');
+                throw new Error('fatal');
             }
         };
 
@@ -104,11 +107,11 @@ final class ErrorHandlerMiddlewareTest extends TestCase
         $this->assertSame(500, $response->statusCode());
     }
 
-    private function handle(\Closure $handler): HttpResponse
+    private function handle(Closure $handler): HttpResponse
     {
         $middleware = new ErrorHandlerMiddleware();
-        $next = new class($handler) implements RequestHandler {
-            public function __construct(private \Closure $handler)
+        $next = new class ($handler) implements RequestHandler {
+            public function __construct(private Closure $handler)
             {
             }
 

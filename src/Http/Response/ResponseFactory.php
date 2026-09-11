@@ -6,6 +6,7 @@ namespace App\Http\Response;
 
 use App\Http\Headers\Headers;
 use App\Http\Protocol\HttpVersion;
+use RuntimeException;
 
 /**
  * Convenience helpers for building common responses.
@@ -34,7 +35,7 @@ final class ResponseFactory
         $body = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         if ($body === false) {
-            throw new \RuntimeException(sprintf('Cannot encode response body as JSON: %s', json_last_error_msg()));
+            throw new RuntimeException(sprintf('Cannot encode response body as JSON: %s', json_last_error_msg()));
         }
 
         return self::body($body, 'application/json; charset=utf-8', $status, $headers);

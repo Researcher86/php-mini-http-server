@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Router;
 
 use Closure;
+use InvalidArgumentException;
 
 /**
  * One registered route pattern plus its compiled matcher.
@@ -34,7 +35,7 @@ final readonly class Route
      * every literal character first so dots, slashes and the like match
      * literally instead of as regex syntax.
      *
-     * @throws \InvalidArgumentException when the pattern repeats a name —
+     * @throws InvalidArgumentException when the pattern repeats a name —
      *         duplicate capture groups would silently break the regex
      */
     private static function compile(string $pattern): string
@@ -49,7 +50,7 @@ final readonly class Route
                 $name = $match[1];
 
                 if (isset($names[$name])) {
-                    throw new \InvalidArgumentException(sprintf(
+                    throw new InvalidArgumentException(sprintf(
                         'Duplicate route parameter {%s} in "%s".',
                         $name,
                         $pattern,

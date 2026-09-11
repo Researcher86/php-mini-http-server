@@ -48,7 +48,8 @@ for ($i = 0; $i < 10; $i++) {
 $metrics = exampleMetrics();
 
 printf("\n[healthy] worst request: %.3f ms — the slow connection cost it nothing\n", max($latencies));
-printf("Server still up, %d connection(s) open, loop max lag %.3f ms\n",
+printf(
+    "Server still up, %d connection(s) open, loop max lag %.3f ms\n",
     (int) ($metrics['active_connections'] ?? 0),
     $metrics['loop_max_lag_ms'] ?? 0.0,
 );

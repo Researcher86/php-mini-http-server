@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Router;
 
+use App\Http\Headers\Headers;
 use App\Http\Protocol\HttpMethod;
 use App\Http\Protocol\HttpVersion;
 use App\Http\Request\HttpRequest;
@@ -13,7 +14,7 @@ use App\Http\Response\ResponseFactory;
 use App\Router\MethodNotAllowedException;
 use App\Router\RouteNotFoundException;
 use App\Router\Router;
-use App\Http\Headers\Headers;
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
 final class RouterTest extends TestCase
@@ -203,7 +204,7 @@ final class RouterTest extends TestCase
 
     public function testDuplicateParameterNamesAreRejectedAtRegistration(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgumentException::class);
         $this->router->get('/pairs/{id}/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::empty());
     }
 

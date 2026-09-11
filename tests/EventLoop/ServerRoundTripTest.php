@@ -23,6 +23,7 @@ use App\Server\Server;
 use App\Server\ServerConfig;
 use App\Support\NullLogger;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 /**
  * End-to-end: a real listening Server driven by the SelectLoop answers real
@@ -124,7 +125,7 @@ final class ServerRoundTripTest extends TestCase
     public function testHandlerExceptionBecomes500AndTheConnectionKeepsServing(): void
     {
         $this->router->get('/boom', static function (): HttpResponse {
-            throw new \RuntimeException('handler exploded');
+            throw new RuntimeException('handler exploded');
         });
 
         $responses = $this->exchange([

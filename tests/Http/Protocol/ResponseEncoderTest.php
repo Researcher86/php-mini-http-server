@@ -11,6 +11,7 @@ use App\Http\Response\HttpResponse;
 use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 final class ResponseEncoderTest extends TestCase
 {
@@ -33,7 +34,7 @@ final class ResponseEncoderTest extends TestCase
             body: 'x',
         );
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->encoder->encode($response);
     }
 
