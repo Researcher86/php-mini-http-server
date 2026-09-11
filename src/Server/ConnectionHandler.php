@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Server;
 
 use App\Connection\Connection;
+use App\Connection\WriteBufferException;
 use App\EventLoop\SelectLoop;
 use App\Http\Handler\RequestHandler;
 use App\Http\Protocol\BodyTooLargeException;
@@ -262,7 +263,25 @@ final readonly class ConnectionHandler
         $stream = $this->connection->socket();
 
         $this->loop->onWritable($stream, function ($s) use ($onDrained): void {
-            $this->metrics->recordBytesWritten($this->connection->flushWrite($s));
+            try {
+                $this->metrics->recordBytesWritten($this->connection->flushWrite($s));
+            } catch (WriteBufferException $e) {
+                // The client vanished while we were still writing — a killed
+                // browser tab, a dropped mobile connection. There is nobody
+                // left to answer, and retrying cannot help, so this one
+                // connection is torn down. Letting the exception escape would
+                // take the event loop, and with it every other client, down
+                // with it: exactly the failure Phase 13 exists to prevent.
+                $this->logger->log(sprintf(
+                    '#%d closed: write failed (%s)',
+                    $this->connection->id,
+                    $e->getMessage(),
+                ));
+
+                $this->close();
+
+                return;
+            }
 
             if (!$this->connection->writeBuffer()->isEmpty()) {
                 return; // the socket took part of it — wait for the next writable event
@@ -276,9 +295,18 @@ final readonly class ConnectionHandler
         });
     }
 
+    /**
+     * Tear this connection down: stop watching its socket for anything, then
+     * close it. Both watchers go — a connection dropped mid-write still has
+     * a writable watcher armed, and the loop would keep firing it at a
+     * socket nobody owns any more.
+     */
     private function close(): void
     {
-        $this->loop->removeReadable($this->connection->socket());
+        $socket = $this->connection->socket();
+
+        $this->loop->removeReadable($socket);
+        $this->loop->removeWritable($socket);
         $this->server->close($this->connection);
     }
 }

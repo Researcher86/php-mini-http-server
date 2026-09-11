@@ -137,6 +137,60 @@ final class ConnectionHandlerTest extends TestCase
         $this->assertSame(0, $this->server->connectionCount());
     }
 
+    public function testClientThatVanishesMidWriteClosesOnlyItsOwnConnection(): void
+    {
+        $router = new Router();
+        // Far past any socket send buffer, so the response cannot be handed
+        // to the kernel in one go and the write really is still in flight
+        // when the client disappears.
+        $router->get('/big', static fn (): HttpResponse => ResponseFactory::text(str_repeat('z', 4_000_000)));
+        $router->get('/hello', static fn (): HttpResponse => ResponseFactory::text('Hello'));
+
+        $application = new MiddlewarePipeline($router);
+        $application->add(new ErrorHandlerMiddleware());
+
+        $loop = new SelectLoop();
+        $this->wireServer($loop, new HttpParser(), $application, new ResponseEncoder());
+
+        $doomed = stream_socket_client("tcp://127.0.0.1:{$this->server->getPort()}");
+        $this->assertIsResource($doomed);
+        fwrite($doomed, "GET /big HTTP/1.1\r\nHost: t\r\n\r\n");
+
+        // Close without reading a byte: the kernel answers the response
+        // bytes already in flight with RST, so the server's next write fails
+        // outright rather than merely blocking. A killed browser tab, a
+        // client on a dropped mobile connection — the ordinary case.
+        $loop->addTimer(0.05, static function () use ($doomed): void {
+            fclose($doomed);
+        });
+
+        // A second, healthy client proves the loop kept running.
+        $survivorSaw = '';
+        $loop->addTimer(0.15, function () use ($loop, &$survivorSaw): void {
+            // The failed write took its own connection with it, and only it.
+            $this->assertSame(0, $this->server->connectionCount());
+
+            $client = stream_socket_client("tcp://127.0.0.1:{$this->server->getPort()}");
+            $this->assertIsResource($client);
+            fwrite($client, "GET /hello HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n");
+            stream_set_blocking($client, false);
+
+            $loop->onReadable($client, static function ($stream) use (&$survivorSaw): void {
+                $chunk = fread($stream, 8192);
+
+                if ($chunk !== false) {
+                    $survivorSaw .= $chunk;
+                }
+            });
+        });
+
+        $loop->addTimer(0.4, static fn () => $loop->stop());
+        $loop->run();
+
+        $this->assertStringContainsString('200 OK', $survivorSaw);
+        $this->assertStringContainsString('Hello', $survivorSaw);
+    }
+
     /**
      * Register the accept path: each accepted connection gets a
      * ConnectionHandler wired to the shared parser/pipeline/encoder.
