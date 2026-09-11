@@ -61,14 +61,15 @@ enum HttpStatusCode: int
     /**
      * Whether a response with this status carries body framing on the wire.
      *
-     * Every status this enum defines frames a body except 204, whose length
-     * is implicit in the status line (it must not carry Content-Length, not
-     * even 0). 1xx statuses never frame a body either, but none exist in
-     * the enum — a 1xx response cannot be built, so the distinction is
-     * guaranteed by construction rather than checked here.
+     * 1xx, 204 and 304 never frame a body:
+     *   - 1xx: the distinction is guaranteed by construction (no 1xx in enum).
+     *   - 204 No Content: length is implicit in the status line.
+     *   - 304 Not Modified: carries validators / metadata, never a body.
+     *
+     * Everything else that has no Content-Length yet is framed by the encoder.
      */
     public function framesBody(): bool
     {
-        return $this !== self::NO_CONTENT;
+        return $this !== self::NO_CONTENT && $this !== self::NOT_MODIFIED;
     }
 }

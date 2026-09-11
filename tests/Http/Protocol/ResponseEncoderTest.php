@@ -90,6 +90,13 @@ final class ResponseEncoderTest extends TestCase
         $this->assertSame("HTTP/1.1 204 No Content\r\n\r\n", $raw);
     }
 
+    public function testNotModifiedStatusOmitsContentLength(): void
+    {
+        $raw = $this->encoder->encode(ResponseFactory::empty(HttpStatusCode::NOT_MODIFIED));
+
+        $this->assertSame("HTTP/1.1 304 Not Modified\r\n\r\n", $raw);
+    }
+
     public function testHandSetContentLengthIsRespectedWhateverItsCasing(): void
     {
         // Header names are case-insensitive on the wire, so a handler that
