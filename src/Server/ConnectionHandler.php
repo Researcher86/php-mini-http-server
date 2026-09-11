@@ -149,8 +149,10 @@ final readonly class ConnectionHandler
             // HEAD is GET without a body. Work from the would-be body while
             // it is still here so Content-Length matches what the GET would
             // have sent (ResponseFactory sets it already; the upgrade covers
-            // hand-built responses), then drop the bytes themselves.
-            if ($request->method === HttpMethod::HEAD) {
+            // hand-built responses), then drop the bytes themselves. Only
+            // body-framing statuses get the header: a 204 must never see
+            // Content-Length, not even 0.
+            if ($request->method === HttpMethod::HEAD && $response->status->framesBody()) {
                 if (!$response->headers->has('Content-Length')) {
                     $response->headers->set('Content-Length', (string) $response->contentLength());
                 }

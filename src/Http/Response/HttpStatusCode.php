@@ -59,6 +59,20 @@ enum HttpStatusCode: int
     }
 
     /**
+     * Whether a response with this status carries body framing on the wire.
+     *
+     * Every status this enum defines frames a body except 204, whose length
+     * is implicit in the status line (it must not carry Content-Length, not
+     * even 0). 1xx statuses never frame a body either, but none exist in
+     * the enum — a 1xx response cannot be built, so the distinction is
+     * guaranteed by construction rather than checked here.
+     */
+    public function framesBody(): bool
+    {
+        return $this->value !== self::NO_CONTENT->value;
+    }
+
+    /**
      * @throws \ValueError when $code is not one of the known status codes
      */
     public static function fromInt(int $code): self

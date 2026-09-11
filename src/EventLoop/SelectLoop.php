@@ -237,11 +237,11 @@ final class SelectLoop implements EventLoop
         [$seconds, $microseconds] = $this->splitTimeout($timeout);
 
         try {
-            // EINTR (a handled signal interrupting select) is not an error
-            // here — the loop just re-waits on the next iteration. A stream
-            // that was closed between loop iterations throws too (ValueError
-            // on some PHP versions, TypeError on others); whichever it is,
-            // the dead watchers are dropped and the loop moves on.
+            // Being interrupted by a handled signal is normal for select().
+            // So is a stream that was closed between watcher collection and
+            // this call: PHP cannot build a valid descriptor set for a
+            // resource that no longer exists. Neither condition is a loop
+            // failure — drop stale watchers and re-wait on the next pass.
             @stream_select($read, $write, $except, $seconds, $microseconds);
         } catch (\ValueError|\TypeError) {
             // A watched stream vanished between loop iterations — drop the dead ones.

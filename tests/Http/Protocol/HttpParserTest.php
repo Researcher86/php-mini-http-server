@@ -150,6 +150,22 @@ final class HttpParserTest extends TestCase
         $this->parser->parse("POST / HTTP/1.1\r\nContent-Length: abc\r\n\r\nbody");
     }
 
+    public function testAcceptsRepeatedIdenticalContentLength(): void
+    {
+        $raw = "POST / HTTP/1.1\r\nContent-Length: 3\r\nContent-Length: 3\r\n\r\nabc";
+
+        $parsed = $this->parser->parse($raw);
+
+        $this->assertNotNull($parsed);
+        $this->assertSame('abc', $parsed->request->body);
+    }
+
+    public function testRejectsConflictingContentLength(): void
+    {
+        $this->expectException(MalformedRequestException::class);
+        $this->parser->parse("POST / HTTP/1.1\r\nContent-Length: 3\r\nContent-Length: 5\r\n\r\nabc");
+    }
+
     public function testRejectsHeaderLineWithoutColon(): void
     {
         $this->expectException(MalformedRequestException::class);

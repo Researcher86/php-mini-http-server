@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Protocol;
 
 use App\Http\Response\HttpResponse;
-use App\Http\Response\HttpStatusCode;
 
 /**
  * Turns an HttpResponse into the exact bytes that go on the wire.
@@ -32,10 +31,10 @@ final class ResponseEncoder
         // empty ones included — on a kept-alive connection "the body ends
         // when the socket closes" does not hold, so a bare 200 would leave
         // the client waiting for a body that never comes. The only statuses
-        // that never frame a body are 1xx and 204 (they are unambiguous
-        // from the status line alone); everything else that has no
-        // Content-Length yet is framed right here.
-        if (!isset($headers['Content-Length']) && !self::neverFramesBody($response->statusCode())) {
+        // that never frame a body are 1xx and 204 (their length is implicit
+        // in the status line); everything else that has no Content-Length
+        // yet is framed right here.
+        if (!isset($headers['Content-Length']) && $response->status->framesBody()) {
             $headers['Content-Length'] = (string) $response->contentLength();
         }
 
@@ -57,15 +56,5 @@ final class ResponseEncoder
         }
 
         return $head . "\r\n" . $response->body;
-    }
-
-    /**
-     * Statuses that never carry a response body, so a keep-alive client can
-     * tell where the response ends from the status line alone and
-     * Content-Length is omitted (a MUST NOT for 1xx and 204).
-     */
-    private static function neverFramesBody(int $status): bool
-    {
-        return ($status >= 100 && $status < 200) || $status === HttpStatusCode::NO_CONTENT->value;
     }
 }

@@ -125,13 +125,32 @@ final readonly class HttpParser
             return 0;
         }
 
-        if (!ctype_digit($value)) {
+        // Repeated Content-Length lines are comma-joined by Headers. They
+        // only break framing when the values disagree (RFC 7230), so several
+        // identical lines are accepted; a single invalid value is the same
+        // unrecoverable framing error as two conflicting ones.
+        $parts = [];
+
+        foreach (explode(',', $value) as $part) {
+            $parts[] = trim($part);
+        }
+
+        foreach ($parts as $part) {
+            if (!ctype_digit($part)) {
+                throw new MalformedRequestException(sprintf(
+                    'Malformed Content-Length header: %s',
+                    $value,
+                ));
+            }
+        }
+
+        if (count(array_unique($parts)) !== 1) {
             throw new MalformedRequestException(sprintf(
-                'Malformed Content-Length header: %s',
+                'Conflicting Content-Length headers: %s',
                 $value,
             ));
         }
 
-        return (int) $value;
+        return (int) $parts[0];
     }
 }

@@ -846,6 +846,13 @@ During draining:
 ✅ Close Connections
 ```
 
+> **Note:** graceful shutdown is *cooperative* with respect to handlers. The
+> event loop is single-threaded and handlers run synchronously, so a request
+> that hangs inside its handler (say, a 500ms blocking call) keeps the loop
+> — and therefore the drain — busy until it returns. Drain waits for it; it
+> does not preempt it. Keep handlers short and non-blocking and the drain
+> stays fast.
+
 ---
 
 # Failure Scenarios

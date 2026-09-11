@@ -48,6 +48,7 @@ final class ServerRoundTripTest extends TestCase
         $this->router = new Router();
         $this->router->get('/hello', static fn (): HttpResponse => ResponseFactory::text('Hello'));
         $this->router->get('/empty', static fn (): HttpResponse => ResponseFactory::empty());
+        $this->router->get('/none', static fn (): HttpResponse => ResponseFactory::empty(HttpStatusCode::NO_CONTENT));
         $this->router->get('/hand', static fn (): HttpResponse => new HttpResponse(
             HttpVersion::HTTP_1_1,
             HttpStatusCode::OK,
@@ -202,6 +203,114 @@ final class ServerRoundTripTest extends TestCase
         }
 
         $this->assertSame(0, $this->server->connectionCount());
+    }
+
+    public function testNoContentResponseHasNoBodyBytesOnTheWire(): void
+    {
+        $responses = $this->exchange([
+            ['write' => "GET /none HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => 'no_body'],
+        ]);
+
+        $this->assertSame(204, $responses[0]['status']);
+        $this->assertSame('', $responses[0]['body']);
+        $this->assertNull($responses[0]['headers']['content-length'] ?? null);
+    }
+
+    public function testHeadOnNoContentOmitsContentLength(): void
+    {
+        // 204 never frames a body, and HEAD must not add Content-Length: 0
+        // to one — sending it is a MUST-NOT.
+        $responses = $this->exchange([
+            ['write' => "HEAD /none HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => 'no_body'],
+        ]);
+
+        $this->assertSame(204, $responses[0]['status']);
+        $this->assertSame('', $responses[0]['body']);
+        $this->assertNull($responses[0]['headers']['content-length'] ?? null);
+    }
+
+    public function testPipelinedRequestsAfterDrainAreRefusedInOneBurst(): void
+    {
+        $responses = $this->exchange([
+            ['write' => "GET /hello HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => true],
+            ['drain' => true],
+            ['write' => "GET /hello HTTP/1.1\r\nHost: t\r\n\r\nGET /hello HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => true],
+        ]);
+
+        // Only the first complete request after drain is refused — one 503,
+        // then the connection is closed, so the second pipelined request is
+        // never even parsed, let alone answered with a second 503.
+        $this->assertCount(2, $responses);
+        $this->assertSame(200, $responses[0]['status']);
+        $this->assertSame(503, $responses[1]['status']);
+        $this->assertSame('close', $responses[1]['headers']['connection'] ?? null);
+
+        for ($i = 0; $i < 100 && $this->server->connectionCount() > 0; $i++) {
+            usleep(1000);
+        }
+
+        $this->assertSame(0, $this->server->connectionCount());
+    }
+
+    public function testPartialRequestInFlightSurvivesDrainAndIsRefused(): void
+    {
+        // The first write carries a complete request and the head of a
+        // second one. Serving the first proves the batch was processed, so
+        // by the time "GET /par" is in the buffer the server sees it as
+        // in-flight partial bytes; drain leaves it alive. Completing it
+        // after drain arrives as a "new" request and is refused.
+        $responses = $this->exchange([
+            ['write' => "GET /hello HTTP/1.1\r\nHost: t\r\n\r\nGET /par"],
+            ['read' => true],
+            ['drain' => true],
+            ['write' => "tial HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => true],
+        ]);
+
+        $this->assertCount(2, $responses);
+        $this->assertSame(200, $responses[0]['status']);
+        $this->assertSame(503, $responses[1]['status']);
+        $this->assertSame('close', $responses[1]['headers']['connection'] ?? null);
+
+        for ($i = 0; $i < 100 && $this->server->connectionCount() > 0; $i++) {
+            usleep(1000);
+        }
+
+        $this->assertSame(0, $this->server->connectionCount());
+    }
+
+    public function testConflictingContentLengthReturns400(): void
+    {
+        $responses = $this->exchange([
+            ['write' => "POST /hello HTTP/1.1\r\nHost: t\r\nContent-Length: 3\r\nContent-Length: 5\r\n\r\nabc"],
+            ['read' => true],
+        ]);
+
+        // Duplicate Content-Length that disagrees with itself is an
+        // unrecoverable framing error, so the request must not be trusted.
+        $this->assertSame(400, $responses[0]['status']);
+        $this->assertSame("Bad Request\n", $responses[0]['body']);
+
+        for ($i = 0; $i < 100 && $this->server->connectionCount() > 0; $i++) {
+            usleep(1000);
+        }
+
+        $this->assertSame(0, $this->server->connectionCount());
+    }
+
+    public function testMalformedContentLengthReturns400(): void
+    {
+        $responses = $this->exchange([
+            ['write' => "POST /hello HTTP/1.1\r\nHost: t\r\nContent-Length: abc\r\n\r\n"],
+            ['read' => true],
+        ]);
+
+        $this->assertSame(400, $responses[0]['status']);
+        $this->assertSame("Bad Request\n", $responses[0]['body']);
     }
 
     /**
