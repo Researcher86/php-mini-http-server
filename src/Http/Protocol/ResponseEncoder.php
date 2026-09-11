@@ -48,7 +48,9 @@ final class ResponseEncoder
         foreach ($headers as $name => $value) {
             // Response splitting guard: a header value is a single line on
             // the wire, so CR/LF smuggled in by a handler must never reach
-            // it. The error handler turns this into a 500.
+            // it. ConnectionHandler turns this refusal into a 500 — it
+            // cannot be the pipeline's error handler, which has already
+            // returned by the time encoding starts.
             if (str_contains($name, "\r") || str_contains($name, "\n")
                 || str_contains($value, "\r") || str_contains($value, "\n")) {
                 throw new \RuntimeException(sprintf(

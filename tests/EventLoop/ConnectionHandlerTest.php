@@ -191,6 +191,56 @@ final class ConnectionHandlerTest extends TestCase
         $this->assertStringContainsString('Hello', $survivorSaw);
     }
 
+    public function testHandlerThatSmugglesCrLfIntoAHeaderGets500NotADeadServer(): void
+    {
+        $router = new Router();
+        $router->get('/evil', static function (): HttpResponse {
+            $response = ResponseFactory::text('body');
+            // Response splitting: a header value carrying CR/LF would end the
+            // header block early and let the rest be read as a second,
+            // attacker-chosen response. The encoder refuses to write it.
+            $response->headers->set('X-Evil', "a\r\nInjected: yes");
+
+            return $response;
+        });
+        $router->get('/hello', static fn (): HttpResponse => ResponseFactory::text('Hello'));
+
+        $application = new MiddlewarePipeline($router);
+        $application->add(new ErrorHandlerMiddleware());
+
+        $loop = new SelectLoop();
+        $this->wireServer($loop, new HttpParser(), $application, new ResponseEncoder());
+
+        $client = stream_socket_client("tcp://127.0.0.1:{$this->server->getPort()}");
+        $this->assertIsResource($client);
+        stream_set_blocking($client, false);
+
+        $received = '';
+        $loop->onReadable($client, static function ($stream) use (&$received): void {
+            $chunk = fread($stream, 8192);
+
+            if ($chunk !== false) {
+                $received .= $chunk;
+            }
+        });
+
+        // Keep-alive, and a healthy request behind the poisoned one: the
+        // encoder failure must cost this request a 500 and nothing else.
+        fwrite($client, "GET /evil HTTP/1.1\r\nHost: t\r\n\r\n");
+        $loop->addTimer(0.15, static function () use ($client): void {
+            fwrite($client, "GET /hello HTTP/1.1\r\nHost: t\r\n\r\n");
+        });
+
+        $loop->addTimer(0.35, static fn () => $loop->stop());
+        $loop->run();
+
+        $this->assertStringContainsString('500 Internal Server Error', $received);
+        $this->assertStringNotContainsString('Injected: yes', $received);
+        $this->assertStringContainsString('Hello', $received);
+
+        fclose($client);
+    }
+
     /**
      * Register the accept path: each accepted connection gets a
      * ConnectionHandler wired to the shared parser/pipeline/encoder.

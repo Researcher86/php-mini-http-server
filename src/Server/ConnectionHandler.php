@@ -176,7 +176,7 @@ final readonly class ConnectionHandler
 
             $this->metrics->recordRequest(microtime(true) - $startedAt);
 
-            $this->connection->queueWrite($this->encoder->encode($response));
+            $this->connection->queueWrite($this->encodeOrFail($response, $keepAlive));
             $queued = true;
 
             if (!$keepAlive) {
@@ -209,6 +209,38 @@ final readonly class ConnectionHandler
         $this->drain($closeAfterDrain
             ? $this->close(...)
             : $this->connection->backToReading(...));
+    }
+
+    /**
+     * Encode a response, falling back to a bare 500 when it cannot be put on
+     * the wire at all.
+     *
+     * The pipeline's error handler catches whatever a handler throws, but it
+     * cannot catch this: encoding happens here, after the pipeline has already
+     * returned. A handler that smuggles CR/LF into a header value makes the
+     * encoder refuse — rightly, since those bytes would end the header block
+     * early and let the rest be read as a second, attacker-chosen response —
+     * and that refusal must cost the request, not the server.
+     */
+    private function encodeOrFail(HttpResponse $response, bool $keepAlive): string
+    {
+        try {
+            return $this->encoder->encode($response);
+        } catch (\Throwable $e) {
+            $this->logger->log(sprintf(
+                '#%d response is not encodable: %s',
+                $this->connection->id,
+                $e->getMessage(),
+            ));
+
+            $fallback = ResponseFactory::text(
+                'Internal Server Error' . PHP_EOL,
+                HttpStatusCode::INTERNAL_SERVER_ERROR,
+            );
+            $fallback->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
+
+            return $this->encoder->encode($fallback);
+        }
     }
 
     /**
