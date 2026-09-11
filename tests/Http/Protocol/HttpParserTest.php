@@ -127,6 +127,14 @@ final class HttpParserTest extends TestCase
         $this->assertSame('one, two', $parsed->request->header('X-Custom'));
     }
 
+    public function testRejectsALowercaseMethod(): void
+    {
+        // RFC 7230 3.1.1: the method token is case-sensitive.
+        $this->expectException(MalformedRequestException::class);
+
+        $this->parser->parse("get / HTTP/1.1\r\nHost: t\r\n\r\n");
+    }
+
     public function testRejectsUnknownMethod(): void
     {
         $this->expectException(MalformedRequestException::class);
