@@ -584,6 +584,22 @@ Content-Length: 5
 Hello
 ```
 
+Response body framing is split between two layers:
+
+```text
+HttpStatusCode::framesBody()
+    └── does this status carry body framing at all? (204 never does,
+        even Content-Length: 0 is a MUST NOT)
+
+ConnectionHandler (method semantics)
+    └── HEAD: keep the would-be GET's Content-Length, then drop the body
+        bytes — but only for statuses that frame a body
+```
+
+Status-level rules live on `HttpStatusCode`, method-level rules at the
+request/response boundary. If a new bodyless status (say a future 304) is
+added to the enum, `framesBody()` must be revisited with it.
+
 ---
 
 # Write Buffers

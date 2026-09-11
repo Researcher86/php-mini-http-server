@@ -205,6 +205,31 @@ final class ServerRoundTripTest extends TestCase
         $this->assertSame(0, $this->server->connectionCount());
     }
 
+    public function testPipelinedRequestsAlreadyInBufferAreRefusedAtDrain(): void
+    {
+        // All three requests land in the socket buffer in one write, and
+        // drain is requested before the loop ever dispatches the server's
+        // readable side. When the batch is finally parsed the server is
+        // already draining: exactly one 503 for the first request, the
+        // rest of the batch stays unread, and the connection is closed.
+        $responses = $this->exchange([
+            ['write' => "GET /hello HTTP/1.1\r\nHost: t\r\n\r\nGET /hello HTTP/1.1\r\nHost: t\r\n\r\nGET /hello HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['drain' => true],
+            ['read' => true],
+        ]);
+
+        $this->assertCount(1, $responses);
+        $this->assertSame(503, $responses[0]['status']);
+        $this->assertSame("Service Unavailable\n", $responses[0]['body']);
+        $this->assertSame('close', $responses[0]['headers']['connection'] ?? null);
+
+        for ($i = 0; $i < 100 && $this->server->connectionCount() > 0; $i++) {
+            usleep(1000);
+        }
+
+        $this->assertSame(0, $this->server->connectionCount());
+    }
+
     public function testNoContentResponseHasNoBodyBytesOnTheWire(): void
     {
         $responses = $this->exchange([
