@@ -184,10 +184,13 @@ php-mini-http-server/
 ├── examples/
 ├── benchmarks/
 ├── tests/
+│
 ├── docs/
+│   ├── ARCHITECTURE.md     how the pieces fit together
+│   ├── PHASES.md           how it was built, phase by phase
+│   └── DECISIONS.md        why it is the way it is
 │
 ├── README.md
-├── PLAN.md
 ├── Makefile
 ├── Dockerfile
 ├── composer.json
@@ -939,6 +942,58 @@ Timeout
 Closed
 ```
 
+## Client Disappears Mid-Response
+
+```text
+Large Response
+
+↓
+
+Client Closes Without Reading
+
+↓
+
+Kernel Answers With RST
+
+↓
+
+Write Fails
+
+↓
+
+Close That Connection Only
+```
+
+The interesting word is *only*. A write error is raised on a later loop pass,
+outside any middleware, so nothing in the pipeline can catch it — and an
+uncaught one ends the loop and every other client with it.
+
+## Unframable Request
+
+```text
+Transfer-Encoding: chunked
+
+or
+
+Two Disagreeing Content-Lengths
+
+↓
+
+Where Does This Request End?
+
+↓
+
+Unknowable
+
+↓
+
+501 / 400  +  Close
+```
+
+Refusing is the safe answer, not the lazy one: guessing a boundary leaves
+the rest of the bytes in the read buffer, where pipelining would serve them
+as a second request nobody sent.
+
 ## Server Shutdown
 
 ```text
@@ -1089,145 +1144,27 @@ STOPPED
 
 ---
 
-# Roadmap
+# How It Was Built
 
-The project is implemented incrementally.
-
-## Phase 1 — TCP Server  ✅
-
-```text
-Socket
-
-Listen
-
-Accept
-```
-
-## Phase 2 — Connections  ✅
+Twenty-two phases, from an empty directory to a benchmarked server, each one
+adding a single capability and each one finished:
 
 ```text
-Connection Lifecycle
-
-Read Buffer
-
-Write Buffer
+Project Setup → TCP Server → Connections → Event Loop → Read Buffers
+      → HTTP Parser → Response → Encoder → Write Buffers
+      → Router → Route Parameters → Middleware → Handlers → Errors
+      → Keep-Alive → Pipelining → Timers → Connection Timeout
+      → Backpressure → Graceful Shutdown → Metrics → Benchmarks
 ```
 
-## Phase 3 — Event Loop  ✅
+Every phase is recorded in **[docs/PHASES.md](docs/PHASES.md)** with what it
+had to achieve and the tests that hold it to that — named down to the
+individual test method where one test answers for one line of the plan.
 
-```text
-Read Events
-
-Write Events
-
-Timers
-```
-
-## Phase 4 — HTTP Parsing  ✅
-
-```text
-Request Line
-
-Headers
-
-Body
-```
-
-## Phase 5 — HTTP Responses  ✅
-
-```text
-Status
-
-Headers
-
-Body
-
-Encoding
-```
-
-## Phase 6 — Routing  ✅
-
-```text
-Routes
-
-Methods
-
-Parameters
-```
-
-## Phase 7 — Middleware  ✅
-
-```text
-Pipeline
-
-Logging
-
-Errors
-```
-
-## Phase 8 — Keep-Alive  ✅
-
-```text
-Persistent Connections
-
-Multiple Requests
-```
-
-## Phase 9 — Timeouts  ✅
-
-```text
-Idle Connections
-
-Cleanup
-```
-
-## Phase 10 — Backpressure  ✅
-
-```text
-Slow Clients
-
-Write Buffers
-
-Flow Control
-```
-
-## Phase 11 — Graceful Shutdown  ✅
-
-```text
-RUNNING
-
-↓
-
-DRAINING
-
-↓
-
-STOPPED
-```
-
-## Phase 12 — Metrics  ✅
-
-```text
-Connections
-
-Requests
-
-Latency
-
-Throughput
-```
-
-## Phase 13 — Benchmarks  ✅
-
-```text
-RPS
-
-Latency
-
-Memory
-
-Connections
-```
+The decisions underneath — what was rejected, which failures were only found
+by running the thing, and what is deliberately missing — are in
+**[docs/DECISIONS.md](docs/DECISIONS.md)**. How the finished pieces fit
+together is **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ---
 
