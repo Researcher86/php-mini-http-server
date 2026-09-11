@@ -5,18 +5,17 @@ declare(strict_types=1);
 use App\EventLoop\SelectLoop;
 use App\Http\Middleware\ErrorHandlerMiddleware;
 use App\Http\Middleware\MiddlewarePipeline;
-use App\Http\Protocol\BodyTooLargeException;
-use App\Http\Protocol\HeaderTooLargeException;
 use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\MalformedRequestException;
 use App\Http\Protocol\ResponseEncoder;
 use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
-use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
+use App\Metrics\ServerMetrics;
 use App\Router\Router;
+use App\Server\ConnectionHandler;
 use App\Server\Server;
 use App\Server\ServerConfig;
+use App\Support\NullLogger;
 
 require __DIR__ . '/../vendor/autoload.php';
 
@@ -84,7 +83,9 @@ foreach ($levels as $concurrency) {
 posix_kill($serverPid, SIGTERM);
 pcntl_waitpid($serverPid, $status);
 
-printf("\nPeak worker memory: %s\n", formatBytes($memoryPeak));
+// measured in this (driver) process: the forked server's memory is not
+// visible from here, so this is honest reporting of what can be measured.
+printf("\nPeak driver memory: %s\n", formatBytes($memoryPeak));
 printf("Done.\n");
 
 /**
@@ -105,77 +106,31 @@ function runServer(mixed $parentPipe, mixed $childPipe): never
     $pipeline = new MiddlewarePipeline($router);
     $pipeline->add(new ErrorHandlerMiddleware());
 
+    $metrics = new ServerMetrics();
     $loop = new SelectLoop();
 
     pcntl_async_signals(true);
     pcntl_signal(SIGTERM, static fn () => $loop->stop());
 
-    $loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $pipeline): void {
+    // Each accepted connection runs the same ConnectionHandler state machine
+    // as bin/server.php, so the benchmark measures the real pipeline.
+    $loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $pipeline, $metrics): void {
         $connection = $server->accept();
 
         if ($connection === null) {
             return;
         }
 
-        $connection->startReading();
-
-        $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $pipeline): void {
-            $data = fread($stream, 8192);
-
-            if ($data === false || $data === '') {
-                $loop->removeReadable($stream);
-                $server->close($connection);
-                return;
-            }
-
-            $connection->appendRead($data);
-
-            while (true) {
-                try {
-                    $parsed = $parser->parse((string) $connection->readBuffer());
-                } catch (MalformedRequestException) {
-                    $connection->queueWrite($encoder->encode(
-                        ResponseFactory::text('Bad Request' . PHP_EOL, HttpStatusCode::BAD_REQUEST),
-                    ));
-                    break;
-                } catch (HeaderTooLargeException) {
-                    $connection->queueWrite($encoder->encode(
-                        ResponseFactory::text('Request Header Fields Too Large' . PHP_EOL, HttpStatusCode::HEADER_TOO_LARGE),
-                    ));
-                    break;
-                } catch (BodyTooLargeException) {
-                    $connection->queueWrite($encoder->encode(
-                        ResponseFactory::text('Payload Too Large' . PHP_EOL, HttpStatusCode::PAYLOAD_TOO_LARGE),
-                    ));
-                    break;
-                }
-
-                if ($parsed === null) {
-                    break;
-                }
-
-                $connection->readBuffer()->consume($parsed->consumedBytes);
-
-                $request = $parsed->request;
-                $keepAlive = $request->wantsKeepAlive();
-                $response = $pipeline->handle($request);
-                $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
-
-                $connection->queueWrite($encoder->encode($response));
-
-                if (!$keepAlive) {
-                    break;
-                }
-            }
-
-            $loop->onWritable($connection->socket(), static function ($s) use ($loop, $connection): void {
-                $connection->flushWrite($s);
-
-                if ($connection->writeBuffer()->isEmpty()) {
-                    $loop->removeWritable($s);
-                }
-            });
-        });
+        (new ConnectionHandler(
+            loop: $loop,
+            server: $server,
+            connection: $connection,
+            parser: $parser,
+            application: $pipeline,
+            encoder: $encoder,
+            metrics: $metrics,
+            logger: new NullLogger(),
+        ))->start();
     });
 
     fwrite($childPipe, (string) $server->getPort() . "\n");
