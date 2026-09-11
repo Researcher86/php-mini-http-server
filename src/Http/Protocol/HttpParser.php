@@ -70,6 +70,8 @@ final readonly class HttpParser
             $headers = Headers::fromLines(substr($head, $firstLineEnd + 2));
         }
 
+        $this->assertDecodableBody($headers);
+
         $contentLength = $this->contentLength($headers);
 
         if ($contentLength > $this->maxBodyBytes) {
@@ -115,6 +117,34 @@ final readonly class HttpParser
             $parts[1],
             HttpVersion::fromWire($parts[2]),
         ];
+    }
+
+    /**
+     * Refuse any transfer coding other than "identity".
+     *
+     * Content-Length is the only framing this parser implements. A request
+     * that announces another coding (chunked, gzip, …) does not end where
+     * Content-Length says it does, so accepting it would leave the encoded
+     * payload in the read buffer to be parsed as the next pipelined request.
+     *
+     * @throws UnsupportedTransferEncodingException
+     */
+    private function assertDecodableBody(Headers $headers): void
+    {
+        $encoding = $headers->get('transfer-encoding');
+
+        if ($encoding === null) {
+            return;
+        }
+
+        foreach (explode(',', $encoding) as $coding) {
+            if (strtolower(trim($coding)) !== 'identity') {
+                throw new UnsupportedTransferEncodingException(sprintf(
+                    'Unsupported Transfer-Encoding: %s',
+                    $encoding,
+                ));
+            }
+        }
     }
 
     private function contentLength(Headers $headers): int

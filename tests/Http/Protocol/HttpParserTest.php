@@ -10,6 +10,7 @@ use App\Http\Protocol\HttpMethod;
 use App\Http\Protocol\HttpParser;
 use App\Http\Protocol\HttpVersion;
 use App\Http\Protocol\MalformedRequestException;
+use App\Http\Protocol\UnsupportedTransferEncodingException;
 use PHPUnit\Framework\TestCase;
 
 final class HttpParserTest extends TestCase
@@ -164,6 +165,41 @@ final class HttpParserTest extends TestCase
     {
         $this->expectException(MalformedRequestException::class);
         $this->parser->parse("POST / HTTP/1.1\r\nContent-Length: 3\r\nContent-Length: 5\r\n\r\nabc");
+    }
+
+    public function testRejectsChunkedTransferEncoding(): void
+    {
+        // Without chunked decoding the framing of this request is unknowable:
+        // the parser would read a zero-length body and then mistake the chunks
+        // for the next pipelined request. 501 is the honest answer.
+        $this->expectException(UnsupportedTransferEncodingException::class);
+
+        $this->parser->parse(
+            "POST /users HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHELLO\r\n0\r\n\r\n",
+        );
+    }
+
+    public function testRejectsTransferEncodingEvenAlongsideContentLength(): void
+    {
+        // The dangerous combination: a proxy that speaks chunked and a server
+        // that reads Content-Length disagree about where the request ends.
+        $this->expectException(UnsupportedTransferEncodingException::class);
+
+        $this->parser->parse(
+            "POST /users HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nContent-Length: 5\r\n\r\nHELLO",
+        );
+    }
+
+    public function testAcceptsTransferEncodingIdentity(): void
+    {
+        // "identity" means "no transfer coding applied" — nothing to decode,
+        // so Content-Length still frames the body.
+        $parsed = $this->parser->parse(
+            "POST /users HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: identity\r\nContent-Length: 5\r\n\r\nHELLO",
+        );
+
+        $this->assertNotNull($parsed);
+        $this->assertSame('HELLO', $parsed->request->body);
     }
 
     public function testRejectsHeaderLineWithoutColon(): void

@@ -327,6 +327,29 @@ final class ServerRoundTripTest extends TestCase
         $this->assertSame(0, $this->server->connectionCount());
     }
 
+    public function testChunkedRequestIsRefusedWith501AndTheConnectionClosed(): void
+    {
+        $responses = $this->exchange([
+            ['write' => "POST /hello HTTP/1.1\r\nHost: t\r\nTransfer-Encoding: chunked\r\n\r\n"
+                . "2c\r\nGET /hello HTTP/1.1\r\nHost: t\r\n\r\n\r\n0\r\n\r\n"],
+            ['read' => true],
+        ]);
+
+        // The chunk payload spells out a second request. Accepting the
+        // chunked framing we cannot decode would leave those bytes in the
+        // read buffer to be served as a real request — smuggled past
+        // whatever sits in front of this server. 501 + close instead.
+        $this->assertSame(501, $responses[0]['status']);
+        $this->assertSame("Not Implemented\n", $responses[0]['body']);
+        $this->assertCount(1, $responses);
+
+        for ($i = 0; $i < 100 && $this->server->connectionCount() > 0; $i++) {
+            usleep(1000);
+        }
+
+        $this->assertSame(0, $this->server->connectionCount());
+    }
+
     public function testMalformedContentLengthReturns400(): void
     {
         $responses = $this->exchange([

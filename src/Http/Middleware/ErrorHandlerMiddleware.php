@@ -8,6 +8,7 @@ use App\Http\Handler\RequestHandler;
 use App\Http\Protocol\BodyTooLargeException;
 use App\Http\Protocol\HeaderTooLargeException;
 use App\Http\Protocol\MalformedRequestException;
+use App\Http\Protocol\UnsupportedTransferEncodingException;
 use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
 use App\Http\Response\HttpStatusCode;
@@ -28,6 +29,7 @@ use App\Router\RouteNotFoundException;
  *     405 Method Not Allowed  path exists, method does not
  *     413 Payload Too Large   declared/delivered body over the limit
  *     431 Header Fields Too Large  header block over the limit
+ *     501 Not Implemented     a transfer coding the parser cannot decode
  *     500 Internal Server Error  anything else
  */
 final class ErrorHandlerMiddleware implements MiddlewareInterface
@@ -49,6 +51,8 @@ final class ErrorHandlerMiddleware implements MiddlewareInterface
             return $this->error(HttpStatusCode::HEADER_TOO_LARGE, 'Request Header Fields Too Large');
         } catch (BodyTooLargeException) {
             return $this->error(HttpStatusCode::PAYLOAD_TOO_LARGE, 'Payload Too Large');
+        } catch (UnsupportedTransferEncodingException) {
+            return $this->error(HttpStatusCode::NOT_IMPLEMENTED, 'Not Implemented');
         } catch (\Throwable) {
             return $this->error(HttpStatusCode::INTERNAL_SERVER_ERROR, 'Internal Server Error');
         }

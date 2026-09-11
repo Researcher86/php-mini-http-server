@@ -13,6 +13,7 @@ use App\Http\Protocol\HttpMethod;
 use App\Http\Protocol\HttpParser;
 use App\Http\Protocol\MalformedRequestException;
 use App\Http\Protocol\ResponseEncoder;
+use App\Http\Protocol\UnsupportedTransferEncodingException;
 use App\Http\Response\HttpResponse;
 use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
@@ -106,6 +107,11 @@ final readonly class ConnectionHandler
                 break;
             } catch (BodyTooLargeException $e) {
                 $this->queueError(HttpStatusCode::PAYLOAD_TOO_LARGE, 'Payload Too Large', $e);
+                $closeAfterDrain = true;
+                $queued = true;
+                break;
+            } catch (UnsupportedTransferEncodingException $e) {
+                $this->queueError(HttpStatusCode::NOT_IMPLEMENTED, 'Not Implemented', $e);
                 $closeAfterDrain = true;
                 $queued = true;
                 break;
@@ -206,7 +212,7 @@ final readonly class ConnectionHandler
 
     /**
      * Queue an error response and log it, then let the connection handshake
-     * close once the response is flushed — after 400/413/431 the request
+     * close once the response is flushed — after 400/413/431/501 the request
      * stream is already broken and there is no safe way to reuse it.
      */
     private function queueError(HttpStatusCode $status, string $reason, \Throwable $e): void
