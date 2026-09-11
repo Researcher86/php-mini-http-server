@@ -241,6 +241,42 @@ final class ConnectionHandlerTest extends TestCase
         fclose($client);
     }
 
+    public function testMetricsCountRequestsAndBytesOfARealExchange(): void
+    {
+        $router = new Router();
+        $router->get('/hello', static fn (): HttpResponse => ResponseFactory::text('Hello'));
+
+        $application = new MiddlewarePipeline($router);
+        $application->add(new ErrorHandlerMiddleware());
+
+        $loop = new SelectLoop();
+        $metrics = $this->wireServer($loop, new HttpParser(), $application, new ResponseEncoder());
+
+        $client = stream_socket_client("tcp://127.0.0.1:{$this->server->getPort()}");
+        $this->assertIsResource($client);
+        stream_set_blocking($client, false);
+
+        $loop->onReadable($client, static function ($stream): void {
+            fread($stream, 8192);
+        });
+
+        $request = "GET /hello HTTP/1.1\r\nHost: t\r\n\r\n";
+        fwrite($client, $request . $request);
+
+        $loop->addTimer(0.2, static fn () => $loop->stop());
+        $loop->run();
+
+        // Phase 20: the counters behind GET /metrics are fed by the handler
+        // at the edges — one tick per request served, and the raw byte counts
+        // of what actually crossed the socket in each direction.
+        $this->assertSame(2, $metrics->totalRequests());
+        $this->assertSame(2 * strlen($request), $metrics->bytesRead());
+        $this->assertGreaterThan(2 * strlen('Hello'), $metrics->bytesWritten());
+        $this->assertGreaterThan(0.0, $metrics->requestsPerSecond());
+
+        fclose($client);
+    }
+
     /**
      * Register the accept path: each accepted connection gets a
      * ConnectionHandler wired to the shared parser/pipeline/encoder.
