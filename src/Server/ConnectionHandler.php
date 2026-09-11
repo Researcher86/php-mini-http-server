@@ -267,9 +267,9 @@ final readonly class ConnectionHandler
 
         $this->logger->log(sprintf('#%d %s: %s', $this->connection->id, $reason, $e->getMessage()));
 
-        $this->connection->queueWrite($this->encoder->encode(
-            ResponseFactory::text($reason . PHP_EOL, $e->status),
-        ));
+        // keepAlive: false is not a preference here, it is a fact — the
+        // response says so, and the connection really does end after it.
+        $this->queueResponse(ResponseFactory::text($reason . PHP_EOL, $e->status), keepAlive: false);
     }
 
     private function pauseReadsUntilDrained(mixed $stream): void

@@ -96,16 +96,14 @@ $router->get('/metrics', static function () use ($metrics, $server): HttpRespons
  * took; the error handler turns exceptions into proper 400/404/405/500
  * responses instead of killing the process.
  */
-$routerNotFound = new MiddlewarePipeline($router);
+$application = new MiddlewarePipeline($router);
 
 // Logging is outermost so it sees the final status even for requests that
 // error — the error handler below converts the exception into a response
 // before it bubbles back to the logger.
-$routerNotFound->add(new LoggingMiddleware($logger));
-
-$routerNotFound->add(new ErrorHandlerMiddleware());
-
-$routerNotFound->add(new class implements MiddlewareInterface {
+$application->add(new LoggingMiddleware($logger));
+$application->add(new ErrorHandlerMiddleware());
+$application->add(new class implements MiddlewareInterface {
     public function process(HttpRequest $request, RequestHandler $next): HttpResponse
     {
         $started = microtime(true);
@@ -127,11 +125,23 @@ pcntl_async_signals(true);
 $listenStream = $server->socket();
 $draining = false;
 
-$onSignal = static function () use (&$draining, $loop, $server, $listenStream, $logger): void {
+// A keep-alive connection sitting between requests has nothing left to
+// finish, and drain() guarantees it will never be allowed to start another
+// one — so reap it now instead of waiting out the idle timeout. Called both
+// the moment shutdown starts and on every tick after, because connections
+// keep arriving at rest as their last response flushes.
+$reapRestingConnections = static function () use ($server, $logger): void {
+    foreach ($server->closeRestingConnections() as $connection) {
+        $logger->log(sprintf('#%d closed: drain (no active request)', $connection->id));
+    }
+};
+
+$onSignal = static function () use (&$draining, $loop, $server, $listenStream, $logger, $reapRestingConnections): void {
     if ($draining) {
         $logger->log('shutdown forced');
         $server->finish();
         $loop->stop();
+
         return;
     }
 
@@ -140,11 +150,7 @@ $onSignal = static function () use (&$draining, $loop, $server, $listenStream, $
     $loop->removeReadable($listenStream);
     $server->drain();
 
-    // A keep-alive connection sitting between requests has nothing left to
-    // finish; reap those now instead of waiting out the idle timeout.
-    foreach ($server->closeRestingConnections() as $connection) {
-        $logger->log(sprintf('#%d closed: drain (no active request)', $connection->id));
-    }
+    $reapRestingConnections();
 };
 
 pcntl_signal(SIGINT, $onSignal);
@@ -160,27 +166,21 @@ $loop->every(2.0, static function () use ($server, $logger): void {
     $logger->log(sprintf('tick: %d active connection(s)', $server->connectionCount()));
 });
 
-$loop->every(1.0, static function () use (&$draining, $loop, $server, $logger): void {
+$loop->every(1.0, static function () use (&$draining, $loop, $server, $logger, $reapRestingConnections): void {
     // Phase 19: during drain, connections that answer a refused request
     // (503 + close) or flush a last in-flight response end up at rest here
     // and are reaped on this tick rather than on the next idle timeout.
     if ($draining) {
-        foreach ($server->closeRestingConnections() as $connection) {
-            $logger->log(sprintf('#%d closed: drain (no active request)', $connection->id));
-        }
+        $reapRestingConnections();
     }
 
-    $closed = $server->closeIdleConnections($server->config()->connectionTimeout);
-
-    foreach ($closed as $connection) {
+    foreach ($server->closeIdleConnections($server->config()->connectionTimeout) as $connection) {
         $logger->log(sprintf('#%d closed: idle timeout', $connection->id));
     }
 
     // Slowloris guard: connections stuck mid-header past the header timeout
     // are reaped even though they keep dribbling bytes.
-    $slow = $server->closeSlowHeaderReads($server->config()->headerTimeout);
-
-    foreach ($slow as $connection) {
+    foreach ($server->closeSlowHeaderReads($server->config()->headerTimeout) as $connection) {
         $logger->log(sprintf('#%d closed: header timeout', $connection->id));
     }
 
@@ -195,9 +195,9 @@ $loop->every(1.0, static function () use (&$draining, $loop, $server, $logger): 
 /**
  * Accept new clients and hand each connection its own ConnectionHandler —
  * the per-connection state machine that parses, routes and flushes (Phase
- * 15 backpressure, Phase 14 keep-alive, Phase 13 errors all live inside).
+ * 18 backpressure, Phase 14 keep-alive, Phase 13 errors all live inside).
  */
-$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $routerNotFound, $metrics, $logger): void {
+$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $application, $metrics, $logger): void {
     $connection = $server->accept();
 
     if ($connection === null) {
@@ -211,7 +211,7 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
         server: $server,
         connection: $connection,
         parser: $parser,
-        application: $routerNotFound,
+        application: $application,
         encoder: $encoder,
         metrics: $metrics,
         logger: $logger,

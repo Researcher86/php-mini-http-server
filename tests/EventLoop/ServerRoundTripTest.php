@@ -364,6 +364,7 @@ final class ServerRoundTripTest extends TestCase
         // whatever sits in front of this server. 501 + close instead.
         $this->assertSame(501, $responses[0]['status']);
         $this->assertSame("Not Implemented\n", $responses[0]['body']);
+        $this->assertSame('close', $responses[0]['headers']['connection'] ?? null);
         $this->assertCount(1, $responses);
 
         for ($i = 0; $i < 100 && $this->server->connectionCount() > 0; $i++) {
