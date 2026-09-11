@@ -58,7 +58,7 @@ final class MiddlewarePipeline implements RequestHandler
             return $this->chain;
         }
 
-        $next = new DelegateRequestHandler($this->finalHandler->handle(...));
+        $next = $this->finalHandler;
 
         foreach (array_reverse($this->middleware) as $middleware) {
             $next = new DelegateRequestHandler(

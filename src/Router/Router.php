@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Router;
 
-use Closure;
 use App\Http\Handler\RequestHandler;
 use App\Http\Protocol\HttpMethod;
 use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
+use Closure;
 
 /**
  * Maps an HttpRequest to the handler that answers it.
@@ -127,6 +127,14 @@ final class Router implements RequestHandler
     }
 
     /**
+     * Whether some route serves $path under $method, exact or pattern.
+     */
+    private function serves(string $method, string $path): bool
+    {
+        return isset($this->exact[$method][$path]) || $this->matchPattern($method, $path) !== null;
+    }
+
+    /**
      * First matching pattern in registration order. Returns both the route
      * and the extracted parameters in one call, so dispatch() never has to
      * run the regex a second time.
@@ -164,28 +172,18 @@ final class Router implements RequestHandler
         $allowed = [];
 
         foreach (HttpMethod::cases() as $method) {
-            $value = $method->value;
-
-            if ($value === HttpMethod::HEAD->value) {
-                continue; // HEAD rides on GET, listed below
+            if ($method === HttpMethod::HEAD) {
+                continue; // HEAD is never registered; it is added below, with GET
             }
 
-            if (isset($this->exact[$value][$path])) {
-                $allowed[] = $value;
-
-                if ($value === HttpMethod::GET->value) {
-                    $allowed[] = HttpMethod::HEAD->value;
-                }
-
+            if (!$this->serves($method->value, $path)) {
                 continue;
             }
 
-            if ($this->matchPattern($value, $path) !== null) {
-                $allowed[] = $value;
+            $allowed[] = $method->value;
 
-                if ($value === HttpMethod::GET->value) {
-                    $allowed[] = HttpMethod::HEAD->value;
-                }
+            if ($method === HttpMethod::GET) {
+                $allowed[] = HttpMethod::HEAD->value;
             }
         }
 

@@ -209,10 +209,7 @@ final class Server
             return;
         }
 
-        if ($this->socket !== null) {
-            fclose($this->socket);
-            $this->socket = null;
-        }
+        $this->closeListeningSocket();
 
         $this->state = ServerState::DRAINING;
     }
@@ -233,20 +230,22 @@ final class Server
         $this->state = ServerState::STOPPED;
     }
 
+    /**
+     * Stop at once: the abrupt shutdown, with none of drain()'s waiting.
+     * Tests and demo scripts use it to put a server down in one call.
+     */
     public function stop(): void
     {
-        foreach ($this->connections as $connection) {
-            $connection->close();
-        }
+        $this->closeListeningSocket();
+        $this->finish();
+    }
 
-        $this->connections = [];
-
+    private function closeListeningSocket(): void
+    {
         if ($this->socket !== null) {
             fclose($this->socket);
             $this->socket = null;
         }
-
-        $this->state = ServerState::STOPPED;
     }
 
     public function isRunning(): bool

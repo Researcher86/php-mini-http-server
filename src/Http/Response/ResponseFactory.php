@@ -23,12 +23,7 @@ final class ResponseFactory
         int|HttpStatusCode $status = 200,
         Headers $headers = new Headers(),
     ): HttpResponse {
-        $status = self::status($status);
-
-        $headers->set('Content-Type', 'text/plain; charset=utf-8');
-        $headers->set('Content-Length', (string) strlen($body));
-
-        return new HttpResponse(self::DEFAULT_VERSION, $status, $headers, $body);
+        return self::body($body, 'text/plain; charset=utf-8', $status, $headers);
     }
 
     public static function json(
@@ -42,25 +37,37 @@ final class ResponseFactory
             throw new \RuntimeException(sprintf('Cannot encode response body as JSON: %s', json_last_error_msg()));
         }
 
-        $status = self::status($status);
-
-        $headers->set('Content-Type', 'application/json; charset=utf-8');
-        $headers->set('Content-Length', (string) strlen($body));
-
-        return new HttpResponse(self::DEFAULT_VERSION, $status, $headers, $body);
+        return self::body($body, 'application/json; charset=utf-8', $status, $headers);
     }
 
+    /**
+     * A response with no body at all — the caller decides whether that is a
+     * 204, a redirect, or a 200 that simply has nothing to say. Content-Length
+     * is left to the encoder, which knows which statuses may carry it.
+     */
     public static function empty(int|HttpStatusCode $status = 200, Headers $headers = new Headers()): HttpResponse
     {
         return new HttpResponse(self::DEFAULT_VERSION, self::status($status), $headers, '');
     }
 
+    /**
+     * The plumbing both body factories need: declare the type, declare the
+     * length, and let the status be given either way round.
+     */
+    private static function body(
+        string $body,
+        string $contentType,
+        int|HttpStatusCode $status,
+        Headers $headers,
+    ): HttpResponse {
+        $headers->set('Content-Type', $contentType);
+        $headers->set('Content-Length', (string) strlen($body));
+
+        return new HttpResponse(self::DEFAULT_VERSION, self::status($status), $headers, $body);
+    }
+
     private static function status(int|HttpStatusCode $status): HttpStatusCode
     {
-        if ($status instanceof HttpStatusCode) {
-            return $status;
-        }
-
-        return HttpStatusCode::from($status);
+        return $status instanceof HttpStatusCode ? $status : HttpStatusCode::from($status);
     }
 }

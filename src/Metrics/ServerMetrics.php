@@ -14,7 +14,7 @@ namespace App\Metrics;
  */
 final class ServerMetrics
 {
-    private float $startedAt;
+    private readonly float $startedAt;
 
     private int $totalRequests = 0;
 
