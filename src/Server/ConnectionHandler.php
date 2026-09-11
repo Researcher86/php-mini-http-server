@@ -30,7 +30,7 @@ use Throwable;
  *
  *     READ  →  PROCESSING (parse, route, handle)  →  WRITING (flush)
  *       ▲                                              │
- *       └────────────── keep-alive ───────────────────┴→ close
+ *       └────────────── keep-alive ────────────────────┴→ close
  *
  * The demo server, the fork-based demo script and the integration tests
  * all hand this handler the same pieces (loop, server, parser, pipeline,

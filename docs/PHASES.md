@@ -195,7 +195,13 @@ The server can accept a TCP connection.
 ## Tests
 
 - [tests/Server/ServerTest.php](../tests/Server/ServerTest.php) —
-  `testStartsRunningAndBindsToArbitraryPort` walks socket → bind → listen and
+  `testConnectionsPastTheCeilingAreRefusedAtOnce` holds the connection
+  limit: past it a client is accepted and closed immediately rather than
+  left queued behind a server that will never reach it. The limit exists
+  because `select()` cannot wait on a descriptor numbered at or above
+  FD_SETSIZE — see
+  [DECISIONS.md](DECISIONS.md#a-failed-wait-is-not-a-ready-list).
+- `testStartsRunningAndBindsToArbitraryPort` walks socket → bind → listen and
   reads the OS-assigned port back; `testAcceptsPendingClientConnection` is
   accept() answering a real `stream_socket_client`;
   `testStopClosesSocketAndFlipsState` is the clean close.
@@ -332,6 +338,14 @@ One PHP process can manage multiple client connections.
   `testPeriodicTimerFiresRepeatedlyThenStops` the third,
   `testCancelledTimerNeverFires` and `testStopHaltsTheLoop` the two ways
   work is taken back out of the loop.
+- Two later tests guard what a wait can also report, both of them bugs
+  before they were tests:
+  `testASignalDuringTheWaitDoesNotMakeIdleStreamsLookReady` — a failed
+  `select()` leaves its arrays untouched, which reads exactly like "every
+  stream is ready" — and
+  `testStreamClosedByAnEarlierHandlerIsNotDispatched`, for a stream that a
+  handler closed after `select()` reported it. See
+  [DECISIONS.md](DECISIONS.md#a-failed-wait-is-not-a-ready-list).
 
 ---
 
@@ -496,6 +510,12 @@ Raw TCP data becomes an HTTP Request object.
   `testRejectsHeaderLineWithoutColon`, `testRejectsMalformedContentLength`,
   `testRejectsConflictingContentLength`, `testRejectsChunkedTransferEncoding`
   and the header/body size limits.
+- [tests/Http/Protocol/HttpParserFuzzTest.php](../tests/Http/Protocol/HttpParserFuzzTest.php) —
+  the same contract as a table, fifty-odd rows of it, each declaring which
+  of the parser's three answers the input must get: wait, refuse, or one
+  request. Writing it found five cases the parser was normalising instead
+  of refusing, described in
+  [DECISIONS.md](DECISIONS.md#refusing-beats-normalising).
 - [tests/Http/Request/HttpRequestTest.php](../tests/Http/Request/HttpRequestTest.php) —
   what the parsed object then offers: path without query string,
   case-insensitive header lookup.
@@ -1416,6 +1436,12 @@ Basic observability.
   `testMetricsCountRequestsAndBytesOfARealExchange` is the claim that
   matters: the numbers `GET /metrics` prints come from a running server
   actually reporting into them, not from a collector nobody calls.
+- [tests/Metrics/LoopMetricsTest.php](../tests/Metrics/LoopMetricsTest.php) —
+  the loop's own numbers, added later than this phase but belonging to it.
+  `testASlowHandlerShowsUpAsLoopLag` is the one worth reading: a handler
+  that blocks for 50ms is 50ms during which no other connection is looked
+  at, and `loop_max_lag_ms` is where that becomes visible.
+  `testAnIdleLoopReportsItsWaitingAsIdle` is the other side of the split.
 - The endpoint itself lives in [bin/server.php](../bin/server.php); `make
   run-server` then `make run-client ARGS=/metrics` prints it.
 
@@ -1494,8 +1520,17 @@ make bench                 # all four levels, 50 requests each
 make bench ARGS="100 200"  # one level: 100 connections, 200 requests each
 ```
 
-[benchmarks/README.md](../benchmarks/README.md) documents that and the
-external tools (wrk, ab, k6) the plan names. The same numbers can be
+Three more scripts under [benchmarks/](../benchmarks/) answer the load
+questions concurrency does not: what pipelining is worth, what a connection
+costs to set up, and what it costs to hold — that last one by asking the
+server its own memory over HTTP, since no other process can read it. They
+all measure the same forked server, defined once in
+[benchmarks/bootstrap.php](../benchmarks/bootstrap.php), deliberately not
+the demo server whose per-request logging would be most of what the numbers
+described.
+
+[benchmarks/README.md](../benchmarks/README.md) documents all four and the
+external tools (wrk, ab, k6) the plan names. The numbers can be
 cross-checked from inside the server through `GET /metrics` while a run is
 in flight.
 

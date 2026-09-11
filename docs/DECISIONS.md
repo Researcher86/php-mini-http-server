@@ -38,8 +38,15 @@ reader is most likely to act on by mistake.
 | `Logger` is one method, not PSR-3 | current, [why](#one-log-method) |
 | Responses are always HTTP/1.1, even to an HTTP/1.0 client | current, known simplification, [why](#what-is-deliberately-missing) |
 | No TLS, no HTTP/2, no chunked responses, no static files | current, [why](#what-is-deliberately-missing) |
+| A failed `select()` means nothing is ready, never everything | current, [why](#a-failed-wait-is-not-a-ready-list) |
+| The server refuses connections past `maxConnections`, well under FD_SETSIZE | current, [why](#a-failed-wait-is-not-a-ready-list) |
+| A stream closed mid-pass is never handed to its handler | current, [why](#a-failed-wait-is-not-a-ready-list) |
+| The parser refuses what RFC 7230 says to refuse, rather than normalising it | current, [why](#refusing-beats-normalising) |
+| The loop measures its own busy/idle split and worst lag | current, [why](#measuring-the-thing-the-readme-warns-about) |
+| Formatting is settled by php-cs-fixer, not per file | current, [why](#borrowed-from-the-sibling-projects) |
 | **`ReadBuffer` searched for `\r\n\r\n` itself** | **removed** — [why](#buffers-do-not-parse). Three layers knew where a request ended; only the parser needs to. |
 | **`Connection::hasCompleteRequest()`** | **removed** — same reason, same commit. |
+| **`?float $now` / `?float $startedAt` seams** | **replaced** by one `Clock` — [why](#one-clock-and-one-rule-for-which-to-ask) |
 
 ---
 
@@ -73,14 +80,15 @@ Two details inside the loop are worth knowing about, both of them the kind
 of thing that only appears once the server runs for real:
 
 - **A handled signal interrupts `select()`**, and PHP surfaces that as a
-  warning. That is not a failure — it is how graceful shutdown gets a chance
-  to run — so the call is silenced and the loop simply re-waits.
+  warning plus a `false` return. That is not a failure — it is how graceful
+  shutdown gets a chance to run — so the call is silenced and the loop
+  re-waits. Reading that `false` correctly turns out to matter a great deal;
+  see [A failed wait is not a ready list](#a-failed-wait-is-not-a-ready-list).
 - **A watched stream can be closed between two loop passes** (the idle sweep
   closes connections on a timer, without telling the loop). PHP cannot build
   a descriptor set from a dead resource and raises `ValueError`; the loop
-  catches it, drops the closed watchers and re-waits. It costs one wasted
-  pass and self-heals, which is why the sweep is allowed to stay ignorant of
-  the loop.
+  catches that, and sweeps closed streams at the top of every pass so it
+  rarely has to.
 
 # One process, one loop
 
@@ -295,6 +303,157 @@ This project has no dependencies, and the only thing it needs from logging is
 same interface. The one decision worth keeping is that `StderrLogger` writes
 to STDERR rather than STDOUT, so server logs and script output (client
 responses, benchmark tables, `/metrics` dumps) can be redirected separately.
+
+# A failed wait is not a ready list
+
+`stream_select()` has three outcomes and the loop used to notice only two.
+It can report how many streams are ready, and it can report zero. It can
+also report **failure** — by returning `false` and leaving the arrays it was
+given exactly as they were passed in.
+
+That third case is not exotic. It is what a handled signal looks like from
+inside the wait, and the signal that does it in practice is the SIGTERM
+asking for a graceful shutdown. The loop ignored the return value, so those
+untouched arrays — the entire watch list — were read as the set of ready
+streams, and every watched connection had its read handler called. A read
+on an idle connection returns nothing, and a read that returns nothing is
+how a handler recognises a closed peer. So the server dropped every quiet
+keep-alive client the instant it was signalled: graceful shutdown began by
+abruptly closing the connections it exists to let finish.
+
+It was found by writing `examples/graceful-shutdown.php`, where a client
+asks for one more thing after the signal and is supposed to be told 503.
+It was told nothing, because its connection was already gone.
+
+Two consequences followed from fixing it.
+
+**The connection ceiling had to become explicit.** `select()` also fails
+when a descriptor is numbered at or above `FD_SETSIZE` (1024 in a standard
+PHP build), and it fails the *whole* wait, not the offending stream. Before
+the fix, that failure accidentally self-corrected: everything looked ready,
+the idle connections were closed, the count came down. Handled correctly,
+the same situation is a loop spinning on a wait that can never succeed —
+worse. So `ServerConfig::maxConnections` (512) stops the server well short
+of the wall, a refused connection is accepted and closed at once rather than
+left queued, and `refused_connections` is reported at `/metrics`, because a
+server that is smaller than its traffic should say so rather than be
+guessed at.
+
+**A stream can also die inside a pass.** `select()` reports what was ready
+when it returned; a handler earlier in the same pass may have closed one of
+those streams since — any sweep, broadcast or shutdown that closes a
+connection it does not own has that shape. Handing the next handler a
+closed resource is a `TypeError`, and it ends the loop for everybody. So
+readiness is re-checked against the resource immediately before the call,
+and closed streams are swept at the top of each pass rather than only when
+`select()` complains about one (that path returned early, costing every
+other connection its turn).
+
+# Refusing beats normalising
+
+The parser's job is to produce a request or refuse to. What it must never do
+is accept something questionable and quietly tidy it into something valid.
+Every place it did was a place where this server and whatever sits in front
+of it could come to different conclusions about the same bytes — and two
+machines disagreeing about where a request ends, or which header it carried,
+is request smuggling.
+
+They were found by writing the contract down as a table
+([tests/Http/Protocol/HttpParserFuzzTest.php](../tests/Http/Protocol/HttpParserFuzzTest.php),
+the idea taken from php-mini-redis), which forced a verdict on cases nobody
+had thought to have an opinion about:
+
+- **`Host : evil`** was trimmed into a valid `Host`. RFC 7230 3.2.4 makes
+  rejecting whitespace before the colon a MUST, precisely because a proxy
+  that forwards `Host ` as an unknown header while this server reads it as
+  `Host` is the disagreement in its purest form.
+- **A folded continuation line containing a colon** was read as a header of
+  its own.
+- **A lone CR, an LF, a NUL or a DEL inside a value** passed through. The
+  response side has refused those since Phase 7; the request side now
+  agrees.
+- **`get / HTTP/1.1`** was upper-cased and served. RFC 7230 3.1.1: the
+  method token is case-sensitive, so `get` is an unknown method.
+- **Host itself** — missing, empty, or repeated — was accepted. All three
+  are a MUST-reject in RFC 7230 5.4, and the repeat is the dangerous one: a
+  front-end routing on the first `Host` and a server reading the second
+  send one request to two different places.
+
+The rule that came out of it, and the reason the fuzz table is worth
+keeping: **anything present must either be valid or be refused**. "Probably
+meant X" is not a third option.
+
+# Measuring the thing the README warns about
+
+The README has always said that a blocking call in a handler blocks the
+entire server. Nothing measured it, and the request counters could not:
+they read perfectly healthy through exactly the stretch in which nobody
+else's socket was being looked at.
+
+So the loop times each pass — waiting in `select()` is idle, running
+handlers and timers is busy — and reports both to
+[LoopMetrics](../src/Metrics/LoopMetrics.php), along with the longest single
+busy stretch there has ever been. That last number is the useful one: it is
+the worst delay any other connection could have suffered waiting its turn.
+`GET /metrics` prints all of it.
+
+The accounting uses `hrtime()` rather than `microtime()`, for the reason in
+the next section.
+
+# One clock, and one rule for which to ask
+
+Three ad-hoc seams for time had grown: an optional `?float $now` on each
+sweep, an optional `?float $startedAt` on the metrics constructor, and bare
+`microtime()` calls inside `Connection` that nothing could reach at all.
+Tests worked around the last by computing `connectedAt() + 10.0` and handing
+it back in.
+
+They are one [Clock](../src/Support/Clock.php) now, with a `FakeClock` for
+tests. The rule the interface documents:
+
+```text
+Clock     when is it now?        deadlines, uptime      injectable
+hrtime()  how long did it take?  durations, loop lag    not injectable
+```
+
+Elapsed time is measured monotonically because a wall-clock correction
+mid-request would otherwise produce a negative duration. Deadlines ask the
+Clock because a test should be able to reach five seconds from now without
+waiting five seconds.
+
+`SelectLoop` is the deliberate exception: it keeps asking `microtime()`
+directly, because its timer deadlines have to agree with the kernel that
+`select()` is waiting against, and a fake clock there would simply
+desynchronise from it.
+
+# Borrowed from the sibling projects
+
+Several things here came from reading
+[php-mini-redis](https://github.com/Researcher86/php-mini-redis) and
+[php-job-queue](https://github.com/Researcher86/php-job-queue), which solve
+different problems with the same shape of runtime. Recorded because
+"where did this come from" is exactly what a reader cannot reconstruct:
+
+- **The parser fuzz table** and **the event-loop metrics** are php-mini-redis's
+  `RespParserFuzzTest` and `EventLoopMetrics`, adapted. Both earned their
+  keep immediately: the table found five leniencies, and the metrics made
+  a documented warning into a number.
+- **`Clock` / `SystemClock` / `FakeClock`** and **`maxConnections`** are
+  php-mini-redis's too.
+- **The `examples/` shape** — one script, one question in its docblock, the
+  answer printed against a real server — is php-mini-redis's, and writing
+  the graceful-shutdown one found the `select()` bug above. Which is the
+  argument for having examples at all: a test asserts what you thought to
+  assert, and a script you have to watch run shows you what you did not.
+- **php-cs-fixer with an explained config** is php-job-queue's. Formatting
+  became a settled question rather than a per-file judgement call, so a
+  diff shows a change in behaviour and never a change in brace placement.
+
+One thing was deliberately *not* taken. php-mini-redis reschedules a
+periodic timer to `now + interval`; this project anchors it to the original
+schedule instead, so a slow pass makes a timer late once rather than sliding
+its whole cadence later. Neither fires repeatedly to catch up, which is the
+part that actually matters; ours keeps the cadence honest as well.
 
 # What is deliberately missing
 

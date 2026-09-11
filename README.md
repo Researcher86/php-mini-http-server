@@ -181,8 +181,8 @@ php-mini-http-server/
 │   │
 │   └── Support/
 │
-├── examples/
-├── benchmarks/
+├── examples/               runnable experiments, one question each
+├── benchmarks/            load questions, one script each
 ├── tests/
 │
 ├── docs/
@@ -914,6 +914,8 @@ Write Buffer Grows
 Backpressure
 ```
 
+Watch it happen: `make example EXAMPLE=slow-client`.
+
 ## Handler Failure
 
 ```text
@@ -1020,7 +1022,17 @@ STOPPED
 
 # Experiments
 
-This repository is designed to be executed and modified.
+This repository is designed to be executed and modified. Each of the five
+below is a script under [examples/](examples/) — start a server with `make
+run-server`, then run one:
+
+```console
+make example EXAMPLE=multiple-clients
+make example EXAMPLE=partial-request
+make example EXAMPLE=keep-alive
+make example EXAMPLE=slow-client
+make example EXAMPLE=graceful-shutdown
+```
 
 ## Multiple Clients
 
