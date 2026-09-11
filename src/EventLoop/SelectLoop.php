@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\EventLoop;
 
+use App\Metrics\LoopMetrics;
 use Closure;
 use TypeError;
 use ValueError;
@@ -23,6 +24,9 @@ use ValueError;
  * Timers participate in the same wait: the select timeout is derived from
  * the nearest timer deadline, so an idle server still wakes up to run
  * scheduled work.
+ *
+ * Each pass is timed and reported to {@see LoopMetrics}, which is how the
+ * cost of one slow handler becomes visible to everyone else.
  */
 final class SelectLoop implements EventLoop
 {
@@ -46,6 +50,21 @@ final class SelectLoop implements EventLoop
     private int $nextTimerId = 1;
 
     private bool $running = false;
+
+    private readonly LoopMetrics $metrics;
+
+    public function __construct()
+    {
+        $this->metrics = new LoopMetrics();
+    }
+
+    /**
+     * How the loop has been spending its time — see {@see LoopMetrics}.
+     */
+    public function metrics(): LoopMetrics
+    {
+        return $this->metrics;
+    }
 
     public function onReadable(mixed $stream, Closure $handler): void
     {
@@ -124,7 +143,12 @@ final class SelectLoop implements EventLoop
 
             $timeout = $this->secondsUntilNearestTimer();
 
+            // hrtime(), not microtime(): a monotonic clock cannot step
+            // backwards under an NTP correction and report a negative
+            // stretch.
+            $waitStarted = hrtime(true);
             [$readyToRead, $readyToWrite] = $this->waitForStreams($timeout, $this->hasWatchedStreams());
+            $dispatchStarted = hrtime(true);
 
             foreach ($readyToRead as $id => $stream) {
                 $this->dispatchRead($id, $stream);
@@ -135,6 +159,11 @@ final class SelectLoop implements EventLoop
             }
 
             $this->runDueTimers();
+
+            $this->metrics->recordIteration(
+                busySeconds: (hrtime(true) - $dispatchStarted) / 1e9,
+                idleSeconds: ($dispatchStarted - $waitStarted) / 1e9,
+            );
         }
     }
 

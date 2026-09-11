@@ -76,9 +76,26 @@ $router->get('/big', static fn (): HttpResponse => ResponseFactory::text(str_rep
  * Phase 20: observability. The /metrics route dumps the counters the server
  * has been feeding since it started.
  */
-$router->get('/metrics', static function () use ($metrics, $server): HttpResponse {
+$router->get('/metrics', static function () use ($metrics, $server, $loop): HttpResponse {
+    $loopMetrics = $loop->metrics();
+
     return ResponseFactory::text(sprintf(
-        "active_connections %d\ntotal_requests %d\nrequests_per_second %.2f\nbytes_read %d\nbytes_written %d\navg_request_duration_ms %.3f\nuptime_seconds %.1f\n",
+        "active_connections %d\n"
+        . "total_requests %d\n"
+        . "requests_per_second %.2f\n"
+        . "bytes_read %d\n"
+        . "bytes_written %d\n"
+        . "avg_request_duration_ms %.3f\n"
+        . "uptime_seconds %.1f\n"
+        // The loop's own numbers. max_lag is the worst delay any other
+        // connection could have suffered waiting for its turn, so it is
+        // where a slow handler shows up — the request counters above would
+        // look perfectly healthy while it happened.
+        . "loop_iterations %d\n"
+        . "loop_busy_seconds %.3f\n"
+        . "loop_idle_seconds %.3f\n"
+        . "loop_utilisation %.3f\n"
+        . "loop_max_lag_ms %.3f\n",
         $server->connectionCount(),
         $metrics->totalRequests(),
         $metrics->requestsPerSecond(),
@@ -86,6 +103,11 @@ $router->get('/metrics', static function () use ($metrics, $server): HttpRespons
         $metrics->bytesWritten(),
         $metrics->averageRequestDuration() * 1000,
         $metrics->uptimeSeconds(),
+        $loopMetrics->iterations(),
+        $loopMetrics->busySeconds(),
+        $loopMetrics->idleSeconds(),
+        $loopMetrics->utilisation(),
+        $loopMetrics->maxLagSeconds() * 1000,
     ));
 });
 
