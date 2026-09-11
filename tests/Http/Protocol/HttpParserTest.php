@@ -208,6 +208,52 @@ final class HttpParserTest extends TestCase
         $this->parser->parse("GET / HTTP/1.1\r\nHost missing\r\n\r\n");
     }
 
+    public function testRejectsWhitespaceBetweenHeaderNameAndColon(): void
+    {
+        // RFC 7230 3.2.4 makes this a MUST reject, and the reason is
+        // desync: a proxy in front that rejects or forwards "Host " as an
+        // unknown header while this server trims it into "Host" is two
+        // machines disagreeing about the request they just handled.
+        $this->expectException(MalformedRequestException::class);
+
+        $this->parser->parse("GET / HTTP/1.1\r\nHost : evil\r\n\r\n");
+    }
+
+    public function testRejectsHeaderLineStartingWithWhitespace(): void
+    {
+        // Obsolete line folding. A continuation that happens to contain a
+        // colon would otherwise be read as a header of its own.
+        $this->expectException(MalformedRequestException::class);
+
+        $this->parser->parse("GET / HTTP/1.1\r\nHost: x\r\n Injected: yes\r\n\r\n");
+    }
+
+    public function testRejectsControlCharactersInHeaderValues(): void
+    {
+        // A lone CR or a NUL inside a value is not a field value at all,
+        // and passing it through leaves it for some later component to
+        // interpret as a line ending or a string terminator.
+        foreach (["a\rb", "a\nb", "a\0b", "a\x7Fb"] as $value) {
+            try {
+                $this->parser->parse("GET / HTTP/1.1\r\nHost: {$value}\r\n\r\n");
+                $this->fail(sprintf('Expected %s to be rejected.', bin2hex($value)));
+            } catch (MalformedRequestException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function testAcceptsTabsAndHighBytesInHeaderValues(): void
+    {
+        // The flip side: horizontal tab is legal inside a field value, and
+        // so are bytes above 0x7F (obs-text) — rejecting those would break
+        // ordinary requests carrying non-ASCII.
+        $parsed = $this->parser->parse("GET / HTTP/1.1\r\nHost: x\r\nX-Note: a\tb\xC3\xA9\r\n\r\n");
+
+        $this->assertNotNull($parsed);
+        $this->assertSame("a\tb\xC3\xA9", $parsed->request->header('X-Note'));
+    }
+
     public function testThrowsWhenIncompleteHeadersExceedTheLimit(): void
     {
         $small = new HttpParser(maxHeaderBytes: 32);

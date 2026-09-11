@@ -67,12 +67,19 @@ final class Headers
         return $normalized;
     }
 
+    /**
+     * Parse a header block — the lines between the request line and the
+     * blank line — into a collection.
+     *
+     * Every rule here is a rule about what to refuse. A lenient header
+     * parser is how two machines end up disagreeing about the request they
+     * both just handled, and that disagreement is request smuggling.
+     */
     public static function fromLines(string $head): self
     {
         $headers = new self();
-        $lines = explode("\r\n", $head);
 
-        foreach ($lines as $line) {
+        foreach (explode("\r\n", $head) as $line) {
             if ($line === '') {
                 continue;
             }
@@ -83,12 +90,53 @@ final class Headers
                 throw new MalformedRequestException(sprintf('Malformed header line: %s', $line));
             }
 
-            $name = trim(substr($line, 0, $colon));
-            $value = trim(substr($line, $colon + 1));
+            $name = substr($line, 0, $colon);
+
+            // Not trimmed, checked. RFC 7230 3.2.4 requires a server to
+            // reject whitespace between the name and the colon outright,
+            // rather than quietly trimming it into a valid-looking name.
+            // The same check catches an obsolete folded continuation line
+            // ("  more value") that happens to contain a colon and would
+            // otherwise read as a header of its own.
+            if (!self::isToken($name)) {
+                throw new MalformedRequestException(sprintf('Malformed header name: %s', $name));
+            }
+
+            // Only spaces and tabs are stripped — the optional whitespace
+            // the grammar allows around a value. Anything else that shows
+            // up at an edge is a control character, and it is refused
+            // below rather than silently removed.
+            $value = trim(substr($line, $colon + 1), " \t");
+
+            if (!self::isFieldValue($value)) {
+                throw new MalformedRequestException(sprintf('Malformed value for header %s', $name));
+            }
 
             $headers->add($name, $value);
         }
 
         return $headers;
+    }
+
+    /**
+     * A header name is a token: visible ASCII minus the delimiter
+     * characters. Notably that excludes space and tab, which is the whole
+     * point of checking.
+     */
+    private static function isToken(string $name): bool
+    {
+        return $name !== '' && preg_match('/^[!#$%&\'*+\-.^_`|~0-9A-Za-z]+$/', $name) === 1;
+    }
+
+    /**
+     * A header value may hold visible characters, spaces, tabs and bytes
+     * above 0x7F (obs-text, which is how non-ASCII arrives). It may not
+     * hold control characters: a CR or LF in there is a line ending
+     * somebody downstream will act on, and a NUL is a string terminator in
+     * every language this request might be forwarded to.
+     */
+    private static function isFieldValue(string $value): bool
+    {
+        return preg_match('/^[\t\x20-\x7E\x80-\xFF]*$/', $value) === 1;
     }
 }
