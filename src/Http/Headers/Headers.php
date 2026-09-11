@@ -24,6 +24,9 @@ final class Headers
     /** @var array<string, string> lowercased name => original casing */
     private array $names = [];
 
+    /** @var array<string, int> lowercased name => how many field lines carried it */
+    private array $occurrences = [];
+
     public function set(string $name, string $value): void
     {
         $key = strtolower($name);
@@ -41,6 +44,7 @@ final class Headers
         $existing = $this->values[$key] ?? null;
 
         $this->set($name, $existing === null ? $value : $existing . ', ' . $value);
+        $this->occurrences[$key] = ($this->occurrences[$key] ?? 0) + 1;
     }
 
     public function get(string $name): ?string
@@ -51,6 +55,20 @@ final class Headers
     public function has(string $name): bool
     {
         return isset($this->values[strtolower($name)]);
+    }
+
+    /**
+     * How many separate field lines carried this name.
+     *
+     * Comma-joining hides the difference between one line holding `a, b`
+     * and two lines holding `a` and `b`, and for some headers that
+     * difference is the whole question: repeating Host is a routing
+     * disagreement, whereas a Host whose value contains a comma is merely
+     * a bad hostname.
+     */
+    public function occurrences(string $name): int
+    {
+        return $this->occurrences[strtolower($name)] ?? 0;
     }
 
     /**

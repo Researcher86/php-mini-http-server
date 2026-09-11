@@ -78,7 +78,7 @@ final class PartialReadIntegrationTest extends TestCase
     {
         $this->registerReader();
 
-        fwrite($this->clientSide, "GET /a HTTP/1.1\r\n\r\nGET /b HTTP/1.1\r\n\r\n");
+        fwrite($this->clientSide, "GET /a HTTP/1.1\r\nHost: t\r\n\r\nGET /b HTTP/1.1\r\nHost: t\r\n\r\n");
 
         $this->runLoopFor(0.05);
 
@@ -91,7 +91,7 @@ final class PartialReadIntegrationTest extends TestCase
         // its turn in the buffer, which is what Phase 15 pipelining builds on.
         $this->connection->readBuffer()->consume($first->consumedBytes);
 
-        $this->assertSame("GET /b HTTP/1.1\r\n\r\n", (string) $this->connection->readBuffer());
+        $this->assertSame("GET /b HTTP/1.1\r\nHost: t\r\n\r\n", (string) $this->connection->readBuffer());
     }
 
     /**

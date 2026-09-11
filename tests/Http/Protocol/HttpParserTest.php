@@ -47,7 +47,7 @@ final class HttpParserTest extends TestCase
 
     public function testParsesPostWithContentLengthBody(): void
     {
-        $raw = "POST /users HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{\"name\":\"Ann\"}";
+        $raw = "POST /users HTTP/1.1\r\nHost: t\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{\"name\":\"Ann\"}";
 
         $parsed = $this->parser->parse($raw);
 
@@ -59,15 +59,15 @@ final class HttpParserTest extends TestCase
 
     public function testReturnsNullWhileBodyIsIncomplete(): void
     {
-        $raw = "POST /users HTTP/1.1\r\nContent-Length: 15\r\n\r\n{\"name\":\"A";
+        $raw = "POST /users HTTP/1.1\r\nHost: t\r\nContent-Length: 15\r\n\r\n{\"name\":\"A";
 
         $this->assertNull($this->parser->parse($raw));
     }
 
     public function testConsumedBytesExcludesBytesOfTheNextRequest(): void
     {
-        $first = "GET /a HTTP/1.1\r\n\r\n";
-        $second = "GET /b HTTP/1.1\r\n\r\n";
+        $first = "GET /a HTTP/1.1\r\nHost: t\r\n\r\n";
+        $second = "GET /b HTTP/1.1\r\nHost: t\r\n\r\n";
 
         $parsed = $this->parser->parse($first . $second);
 
@@ -79,9 +79,9 @@ final class HttpParserTest extends TestCase
     public function testPipelinedRequestsAreParsedOneByOneFromOneBuffer(): void
     {
         $requests = [
-            "GET /one HTTP/1.1\r\n\r\n",
-            "POST /two HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc",
-            "GET /three HTTP/1.1\r\n\r\n",
+            "GET /one HTTP/1.1\r\nHost: t\r\n\r\n",
+            "POST /two HTTP/1.1\r\nHost: t\r\nContent-Length: 3\r\n\r\nabc",
+            "GET /three HTTP/1.1\r\nHost: t\r\n\r\n",
         ];
 
         $buffer = implode('', $requests);
@@ -107,7 +107,7 @@ final class HttpParserTest extends TestCase
 
     public function testParsesQueryStringIntoPathAndQuery(): void
     {
-        $raw = "GET /users?page=2&filter=active HTTP/1.1\r\n\r\n";
+        $raw = "GET /users?page=2&filter=active HTTP/1.1\r\nHost: t\r\n\r\n";
 
         $parsed = $this->parser->parse($raw);
 
@@ -118,7 +118,7 @@ final class HttpParserTest extends TestCase
 
     public function testHeaderNamesAreCaseInsensitiveAndDuplicatesAreCommaJoined(): void
     {
-        $raw = "GET / HTTP/1.1\r\nX-Custom: one\r\nX-Custom: two\r\n\r\n";
+        $raw = "GET / HTTP/1.1\r\nHost: t\r\nX-Custom: one\r\nX-Custom: two\r\n\r\n";
 
         $parsed = $this->parser->parse($raw);
 
@@ -153,7 +153,7 @@ final class HttpParserTest extends TestCase
 
     public function testAcceptsRepeatedIdenticalContentLength(): void
     {
-        $raw = "POST / HTTP/1.1\r\nContent-Length: 3\r\nContent-Length: 3\r\n\r\nabc";
+        $raw = "POST / HTTP/1.1\r\nHost: t\r\nContent-Length: 3\r\nContent-Length: 3\r\n\r\nabc";
 
         $parsed = $this->parser->parse($raw);
 
@@ -206,6 +206,43 @@ final class HttpParserTest extends TestCase
     {
         $this->expectException(MalformedRequestException::class);
         $this->parser->parse("GET / HTTP/1.1\r\nHost missing\r\n\r\n");
+    }
+
+    public function testRejectsHttp11RequestWithoutHost(): void
+    {
+        // RFC 7230 5.4. Host is what tells a server which site a request is
+        // for; without it an HTTP/1.1 request is ambiguous by construction,
+        // which is why the spec makes this a MUST rather than a nicety.
+        $this->expectException(MalformedRequestException::class);
+
+        $this->parser->parse("GET / HTTP/1.1\r\nAccept: */*\r\n\r\n");
+    }
+
+    public function testRejectsHttp11RequestWithAnEmptyHost(): void
+    {
+        $this->expectException(MalformedRequestException::class);
+
+        $this->parser->parse("GET / HTTP/1.1\r\nHost:\r\n\r\n");
+    }
+
+    public function testRejectsTwoHostHeaders(): void
+    {
+        // The one with teeth: a front-end that routes on the first Host and
+        // a server that routes on the second send one request to two
+        // different places.
+        $this->expectException(MalformedRequestException::class);
+
+        $this->parser->parse("GET / HTTP/1.1\r\nHost: good\r\nHost: evil\r\n\r\n");
+    }
+
+    public function testHttp10NeedsNoHost(): void
+    {
+        // HTTP/1.0 predates virtual hosting, so the same request is fine
+        // one version down.
+        $parsed = $this->parser->parse("GET / HTTP/1.0\r\nAccept: */*\r\n\r\n");
+
+        $this->assertNotNull($parsed);
+        $this->assertNull($parsed->request->header('Host'));
     }
 
     public function testRejectsWhitespaceBetweenHeaderNameAndColon(): void
@@ -277,14 +314,14 @@ final class HttpParserTest extends TestCase
         $small = new HttpParser(maxBodyBytes: 10);
 
         $this->expectException(BodyTooLargeException::class);
-        $small->parse("POST / HTTP/1.1\r\nContent-Length: 100\r\n\r\nbody");
+        $small->parse("POST / HTTP/1.1\r\nHost: t\r\nContent-Length: 100\r\n\r\nbody");
     }
 
     public function testBodyAtTheLimitIsAccepted(): void
     {
         $tiny = new HttpParser(maxBodyBytes: 4);
 
-        $parsed = $tiny->parse("POST / HTTP/1.1\r\nContent-Length: 4\r\n\r\ndata");
+        $parsed = $tiny->parse("POST / HTTP/1.1\r\nHost: t\r\nContent-Length: 4\r\n\r\ndata");
 
         $this->assertNotNull($parsed);
         $this->assertSame('data', $parsed->request->body);
@@ -292,8 +329,14 @@ final class HttpParserTest extends TestCase
 
     public function testHeaderBlockAtTheLimitIsAccepted(): void
     {
-        $tiny = new HttpParser(maxHeaderBytes: 32);
+        // The header block below is exactly 32 bytes, so it sits on the
+        // limit rather than merely under it — off-by-one is the whole risk
+        // a limit check carries, and this is the side that must pass.
+        $head = "GET / HTTP/1.1\r\nHost: t\r\nX-A: bc";
 
-        $this->assertNotNull($tiny->parse("GET / HTTP/1.1\r\n\r\n"));
+        $tiny = new HttpParser(maxHeaderBytes: strlen($head));
+
+        $this->assertNotNull($tiny->parse($head . "\r\n\r\n"));
+        $this->assertNull($tiny->parse($head));
     }
 }

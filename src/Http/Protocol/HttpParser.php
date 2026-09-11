@@ -70,6 +70,7 @@ final readonly class HttpParser
             $headers = Headers::fromLines(substr($head, $firstLineEnd + 2));
         }
 
+        $this->assertHostIsUsable($headers, $version);
         $this->assertDecodableBody($headers);
 
         $contentLength = $this->contentLength($headers);
@@ -117,6 +118,33 @@ final readonly class HttpParser
             $parts[1],
             HttpVersion::fromWire($parts[2]),
         ];
+    }
+
+    /**
+     * An HTTP/1.1 request must carry exactly one non-empty Host.
+     *
+     * RFC 7230 5.4 makes all three of these a MUST, and the one that
+     * matters most is the duplicate: a front-end that routes on the first
+     * Host and a server that reads the second send a single request to two
+     * different places. Host is also what makes a request unambiguous at
+     * all once one address serves several sites — HTTP/1.0 predates that,
+     * and is left alone.
+     *
+     * @throws MalformedRequestException
+     */
+    private function assertHostIsUsable(Headers $headers, HttpVersion $version): void
+    {
+        if ($version === HttpVersion::HTTP_1_0) {
+            return;
+        }
+
+        if ($headers->occurrences('host') > 1) {
+            throw new MalformedRequestException('Request carries more than one Host header.');
+        }
+
+        if (($headers->get('host') ?? '') === '') {
+            throw new MalformedRequestException('HTTP/1.1 request without a Host header.');
+        }
     }
 
     /**
