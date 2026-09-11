@@ -72,12 +72,15 @@ final readonly class HttpRequest
      */
     public function wantsKeepAlive(): bool
     {
-        $connection = strtolower($this->header('Connection') ?? '');
+        $connectionTokens = array_map(
+            static fn (string $token): string => strtolower(trim($token)),
+            explode(',', $this->header('Connection') ?? ''),
+        );
 
         if ($this->version === HttpVersion::HTTP_1_0) {
-            return $connection === 'keep-alive';
+            return in_array('keep-alive', $connectionTokens, true);
         }
 
-        return $connection !== 'close';
+        return !in_array('close', $connectionTokens, true);
     }
 }

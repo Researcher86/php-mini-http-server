@@ -97,6 +97,36 @@ final class ResponseEncoderTest extends TestCase
         $this->assertSame("HTTP/1.1 304 Not Modified\r\n\r\n", $raw);
     }
 
+    public function testBodyAndContentLengthAreOmittedForBodylessStatuses(): void
+    {
+        $this->assertSame(
+            "HTTP/1.1 204 No Content\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n",
+            $this->encoder->encode(ResponseFactory::text('ignored', HttpStatusCode::NO_CONTENT)),
+        );
+        $this->assertSame(
+            "HTTP/1.1 304 Not Modified\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n",
+            $this->encoder->encode(ResponseFactory::text('ignored', HttpStatusCode::NOT_MODIFIED)),
+        );
+    }
+
+    public function testRejectsContentLengthThatDoesNotMatchTheBody(): void
+    {
+        $headers = new Headers();
+        $headers->set('Content-Length', '0');
+
+        $this->expectException(RuntimeException::class);
+        $this->encoder->encode(new HttpResponse(HttpVersion::HTTP_1_1, HttpStatusCode::OK, $headers, 'Hello'));
+    }
+
+    public function testRejectsMalformedHeaderName(): void
+    {
+        $headers = new Headers();
+        $headers->set('Bad Header', 'value');
+
+        $this->expectException(RuntimeException::class);
+        $this->encoder->encode(new HttpResponse(HttpVersion::HTTP_1_1, HttpStatusCode::OK, $headers, ''));
+    }
+
     public function testHandSetContentLengthIsRespectedWhateverItsCasing(): void
     {
         // Header names are case-insensitive on the wire, so a handler that

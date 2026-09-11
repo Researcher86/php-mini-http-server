@@ -210,11 +210,16 @@ final readonly class ConnectionHandler
             return $response;
         }
 
-        if (!$response->headers->has('Content-Length')) {
-            $response->headers->set('Content-Length', (string) $response->contentLength());
-        }
+        $representedContentLength = $response->contentLength();
+        $response->headers->set('Content-Length', (string) $representedContentLength);
 
-        return new HttpResponse($response->version, $response->status, $response->headers, '');
+        return new HttpResponse(
+            $response->version,
+            $response->status,
+            $response->headers,
+            '',
+            $representedContentLength,
+        );
     }
 
     /**

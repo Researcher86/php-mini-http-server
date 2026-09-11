@@ -28,6 +28,20 @@ final class ResponseEncoder
 
         $headers = $response->headers->normalized();
 
+        // 204 and 304 are always bodyless. Dropping a body supplied by an
+        // application here keeps an invalid response from corrupting the
+        // next response on a persistent connection. This server deliberately
+        // does not emit Content-Length for either status (see framesBody()).
+        $body = $response->status->framesBody() ? $response->body : '';
+
+        if (!$response->status->framesBody()) {
+            foreach ($headers as $name => $_) {
+                if (strtolower($name) === 'content-length') {
+                    unset($headers[$name]);
+                }
+            }
+        }
+
         // Framing: every response must state how many bytes to expect,
         // empty ones included — on a kept-alive connection "the body ends
         // when the socket closes" does not hold, so a bare 200 would leave
@@ -40,8 +54,18 @@ final class ResponseEncoder
         // names are case-insensitive: asking the normalized array directly
         // would miss a handler's "content-length" and emit a second, capital
         // copy — two Content-Length lines, which recipients must reject.
-        if (!$response->headers->has('Content-Length') && $response->status->framesBody()) {
-            $headers['Content-Length'] = (string) $response->contentLength();
+        if ($response->status->framesBody()) {
+            $contentLength = $response->headers->get('Content-Length');
+
+            if ($contentLength === null) {
+                $headers['Content-Length'] = (string) $response->framedContentLength();
+            } elseif (!$this->isContentLengthFor($contentLength, $response->framedContentLength())) {
+                throw new RuntimeException(sprintf(
+                    'Content-Length %s does not match the %d-byte response representation.',
+                    $contentLength,
+                    $response->framedContentLength(),
+                ));
+            }
         }
 
         $head = $statusLine;
@@ -52,10 +76,9 @@ final class ResponseEncoder
             // it. ConnectionHandler turns this refusal into a 500 — it
             // cannot be the pipeline's error handler, which has already
             // returned by the time encoding starts.
-            if (str_contains($name, "\r") || str_contains($name, "\n")
-                || str_contains($value, "\r") || str_contains($value, "\n")) {
+            if (!$this->isToken($name) || !$this->isFieldValue($value)) {
                 throw new RuntimeException(sprintf(
-                    'Header name or value contains CR/LF: %s',
+                    'Malformed response header: %s',
                     $name,
                 ));
             }
@@ -63,6 +86,25 @@ final class ResponseEncoder
             $head .= sprintf("%s: %s\r\n", $name, $value);
         }
 
-        return $head . "\r\n" . $response->body;
+        return $head . "\r\n" . $body;
+    }
+
+    private function isContentLengthFor(string $value, int $bodyLength): bool
+    {
+        if (preg_match('/^[0-9]+$/', $value) !== 1) {
+            return false;
+        }
+
+        return ltrim($value, '0') === ltrim((string) $bodyLength, '0');
+    }
+
+    private function isToken(string $name): bool
+    {
+        return $name !== '' && preg_match('/^[!#$%&\'*+\-.^_`|~0-9A-Za-z]+$/', $name) === 1;
+    }
+
+    private function isFieldValue(string $value): bool
+    {
+        return preg_match('/^[\t\x20-\x7E\x80-\xFF]*$/', $value) === 1;
     }
 }

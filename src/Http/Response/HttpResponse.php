@@ -21,6 +21,8 @@ final readonly class HttpResponse
         public HttpStatusCode $status,
         public Headers $headers,
         public string $body,
+        /** The GET representation length when this is a bodyless HEAD response. */
+        public ?int $representedContentLength = null,
     ) {
     }
 
@@ -37,6 +39,16 @@ final readonly class HttpResponse
     public function contentLength(): int
     {
         return strlen($this->body);
+    }
+
+    /**
+     * The length used for HTTP body framing. For HEAD this describes the
+     * representation that would have been sent for GET, not the empty wire
+     * body that HEAD itself carries.
+     */
+    public function framedContentLength(): int
+    {
+        return $this->representedContentLength ?? $this->contentLength();
     }
 
     public function header(string $name): ?string

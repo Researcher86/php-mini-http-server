@@ -98,6 +98,26 @@ final class HttpRequestTest extends TestCase
         $this->assertTrue($request->wantsKeepAlive());
     }
 
+    public function testHttp11ClosesWhenCloseIsOneOfSeveralConnectionTokens(): void
+    {
+        $headers = new Headers();
+        $headers->set('Connection', 'keep-alive, close');
+
+        $request = new HttpRequest(HttpMethod::GET, '/', HttpVersion::HTTP_1_1, $headers, '');
+
+        $this->assertFalse($request->wantsKeepAlive());
+    }
+
+    public function testHttp10KeepsAliveWhenKeepAliveIsOneOfSeveralConnectionTokens(): void
+    {
+        $headers = new Headers();
+        $headers->set('Connection', 'upgrade, keep-alive');
+
+        $request = new HttpRequest(HttpMethod::GET, '/', HttpVersion::HTTP_1_0, $headers, '');
+
+        $this->assertTrue($request->wantsKeepAlive());
+    }
+
     private function requestWithTarget(string $target): HttpRequest
     {
         return new HttpRequest(
