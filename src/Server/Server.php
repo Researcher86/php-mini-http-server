@@ -158,6 +158,32 @@ final class Server
     }
 
     /**
+     * Close every connection currently at rest — no request bytes mid-parse
+     * (read buffer empty, not waiting for a header block), nothing waiting
+     * to flush, no response mid-write. During DRAINING such a connection is
+     * keep-alive between requests, and it will never be allowed to start
+     * another one, so reaping it immediately makes shutdown fast and
+     * predictable instead of waiting out the idle timeout.
+     *
+     * @return list<Connection> the connections that were closed
+     */
+    public function closeRestingConnections(): array
+    {
+        $closed = [];
+
+        foreach ($this->connections as $connection) {
+            if ($connection->writeBuffer()->isEmpty()
+                && $connection->readBuffer()->isEmpty()
+                && $connection->waitingForHeadersSince() === 0.0) {
+                $this->close($connection);
+                $closed[] = $connection;
+            }
+        }
+
+        return $closed;
+    }
+
+    /**
      * @return list<Connection>
      */
     public function connections(): array
@@ -226,6 +252,18 @@ final class Server
     public function isRunning(): bool
     {
         return $this->state === ServerState::RUNNING;
+    }
+
+    /**
+     * Whether the server has started a graceful shutdown yet.
+     *
+     * Once true, established keep-alive connections must not start new
+     * requests — ConnectionHandler consults this before handling the next
+     * parsed request and refuses it with 503 + close.
+     */
+    public function isDraining(): bool
+    {
+        return $this->state === ServerState::DRAINING;
     }
 
     public function state(): ServerState

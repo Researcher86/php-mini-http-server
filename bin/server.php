@@ -139,6 +139,12 @@ $onSignal = static function () use (&$draining, $loop, $server, $listenStream, $
     $logger->log('shutdown draining: no new connections, finishing active requests');
     $loop->removeReadable($listenStream);
     $server->drain();
+
+    // A keep-alive connection sitting between requests has nothing left to
+    // finish; reap those now instead of waiting out the idle timeout.
+    foreach ($server->closeRestingConnections() as $connection) {
+        $logger->log(sprintf('#%d closed: drain (no active request)', $connection->id));
+    }
 };
 
 pcntl_signal(SIGINT, $onSignal);
@@ -155,6 +161,15 @@ $loop->every(2.0, static function () use ($server, $logger): void {
 });
 
 $loop->every(1.0, static function () use (&$draining, $loop, $server, $logger): void {
+    // Phase 19: during drain, connections that answer a refused request
+    // (503 + close) or flush a last in-flight response end up at rest here
+    // and are reaped on this tick rather than on the next idle timeout.
+    if ($draining) {
+        foreach ($server->closeRestingConnections() as $connection) {
+            $logger->log(sprintf('#%d closed: drain (no active request)', $connection->id));
+        }
+    }
+
     $closed = $server->closeIdleConnections($server->config()->connectionTimeout);
 
     foreach ($closed as $connection) {

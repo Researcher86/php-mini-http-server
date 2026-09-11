@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace App\Tests\EventLoop;
 
 use App\EventLoop\SelectLoop;
+use App\Http\Headers\Headers;
 use App\Http\Middleware\ErrorHandlerMiddleware;
 use App\Http\Middleware\MiddlewarePipeline;
 use App\Http\Protocol\HttpParser;
+use App\Http\Protocol\HttpVersion;
 use App\Http\Protocol\ResponseEncoder;
 use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
+use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
 use App\Metrics\ServerMetrics;
 use App\Router\Router;
@@ -44,6 +47,13 @@ final class ServerRoundTripTest extends TestCase
 
         $this->router = new Router();
         $this->router->get('/hello', static fn (): HttpResponse => ResponseFactory::text('Hello'));
+        $this->router->get('/empty', static fn (): HttpResponse => ResponseFactory::empty());
+        $this->router->get('/hand', static fn (): HttpResponse => new HttpResponse(
+            HttpVersion::HTTP_1_1,
+            HttpStatusCode::OK,
+            new Headers(),
+            'raw',
+        ));
         $this->router->get('/users/{id}', static fn (HttpRequest $r, array $params): HttpResponse => ResponseFactory::json([
             'id' => $params['id'],
         ]));
@@ -121,6 +131,35 @@ final class ServerRoundTripTest extends TestCase
         $this->assertSame('5', $responses[0]['headers']['content-length'] ?? null);
     }
 
+    public function testHeadOnHandBuiltResponseFramesContentLengthBeforeDroppingBody(): void
+    {
+        // /hand builds its response by hand without ever touching
+        // ResponseFactory, so no Content-Length header exists yet. HEAD must
+        // still report the length the GET would have sent.
+        $responses = $this->exchange([
+            ['write' => "HEAD /hand HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => 'no_body'],
+        ]);
+
+        $this->assertSame(200, $responses[0]['status']);
+        $this->assertSame('', $responses[0]['body']);
+        $this->assertSame('3', $responses[0]['headers']['content-length'] ?? null);
+    }
+
+    public function testEmptyResponseCarriesContentLengthZeroOnKeepAlive(): void
+    {
+        // An empty 200 must still frame itself (Content-Length: 0) or a
+        // keep-alive client would wait for a body that never arrives.
+        $responses = $this->exchange([
+            ['write' => "GET /empty HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => true],
+        ]);
+
+        $this->assertSame(200, $responses[0]['status']);
+        $this->assertSame('', $responses[0]['body']);
+        $this->assertSame('0', $responses[0]['headers']['content-length'] ?? null);
+    }
+
     public function testConnectionCloseIsHonoured(): void
     {
         $responses = $this->exchange([
@@ -138,6 +177,33 @@ final class ServerRoundTripTest extends TestCase
         $this->assertSame(0, $this->server->connectionCount());
     }
 
+    public function testDrainingServerRefusesNewRequestsOnExistingConnection(): void
+    {
+        $responses = $this->exchange([
+            ['write' => "GET /hello HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => true],
+            ['drain' => true],
+            ['write' => "GET /hello HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => true],
+        ]);
+
+        // The request in flight when the drain started is served normally.
+        $this->assertCount(2, $responses);
+        $this->assertSame(200, $responses[0]['status']);
+
+        // But the next keep-alive request must be refused, told why, and the
+        // connection torn down right after the refusal flushes.
+        $this->assertSame(503, $responses[1]['status']);
+        $this->assertSame("Service Unavailable\n", $responses[1]['body']);
+        $this->assertSame('close', $responses[1]['headers']['connection'] ?? null);
+
+        for ($i = 0; $i < 100 && $this->server->connectionCount() > 0; $i++) {
+            usleep(1000);
+        }
+
+        $this->assertSame(0, $this->server->connectionCount());
+    }
+
     /**
      * Run a scripted exchange against the real server: alternating writes of
      * raw bytes and reads of exactly one response each, all on one client
@@ -145,8 +211,9 @@ final class ServerRoundTripTest extends TestCase
      *
      * A read step is ['read' => true] when the response carries a body sized
      * by Content-Length, or ['read' => 'no_body'] for HEAD-style responses.
+     * A ['drain' => true] step triggers a graceful shutdown mid-exchange.
      *
-     * @param list<array{write?: string, read?: bool|string}> $script
+     * @param list<array{write?: string, read?: bool|string, drain?: bool}> $script
      *
      * @return list<array{status: int, headers: array<string, string>, body: string}>
      */
@@ -181,7 +248,7 @@ final class ServerRoundTripTest extends TestCase
         $this->assertIsResource($client);
         stream_set_blocking($client, false);
 
-        /** @var array{script: list<array{write?: string, read?: bool|string}>, step: int, toWrite: string, readBuf: string, responses: list<array{status: int, headers: array<string, string>, body: string}>} $state */
+        /** @var array{script: list<array{write?: string, read?: bool|string, drain?: bool}>, step: int, toWrite: string, readBuf: string, responses: list<array{status: int, headers: array<string, string>, body: string}>} $state */
         $state = [
             'script' => $script,
             'step' => 0,
@@ -192,7 +259,7 @@ final class ServerRoundTripTest extends TestCase
 
         $advance = null;
 
-        $advance = static function (mixed $stream) use ($loop, &$state): void {
+        $advance = static function (mixed $stream) use ($loop, &$state, $server): void {
             while (true) {
                 if ($state['step'] >= count($state['script'])) {
                     $loop->removeWritable($stream);
@@ -202,6 +269,12 @@ final class ServerRoundTripTest extends TestCase
                 }
 
                 $step = $state['script'][$state['step']];
+
+                if (isset($step['drain'])) {
+                    $server->drain();
+                    $state['step']++;
+                    continue;
+                }
 
                 if (isset($step['write'])) {
                     if ($state['toWrite'] === '') {

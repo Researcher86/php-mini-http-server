@@ -123,14 +123,38 @@ final readonly class ConnectionHandler
             $this->connection->readBuffer()->consume($parsed->consumedBytes);
 
             $request = $parsed->request;
+
+            // Phase 19 graceful shutdown: once the server is DRAINING no NEW
+            // request may start. In-flight work is finished and flushed
+            // above (the loop reaches this point only between requests);
+            // anything that still arrives — the next keep-alive request from
+            // a connection that was mid-exchange when shutdown began — is
+            // refused with 503 + close so the client learns why, then the
+            // connection ends once the response flushes.
+            if ($this->server->isDraining()) {
+                $response = ResponseFactory::text('Service Unavailable' . PHP_EOL, HttpStatusCode::SERVICE_UNAVAILABLE);
+                $response->headers->set('Connection', 'close');
+
+                $this->connection->queueWrite($this->encoder->encode($response));
+                $queued = true;
+                $closeAfterDrain = true;
+                break;
+            }
+
             $startedAt = microtime(true);
 
             $keepAlive = $request->wantsKeepAlive();
             $response = $this->application->handle($request);
 
-            // HEAD is GET without a body: keep the headers (Content-Length
-            // reflects the would-be GET body) but drop the body itself.
+            // HEAD is GET without a body. Work from the would-be body while
+            // it is still here so Content-Length matches what the GET would
+            // have sent (ResponseFactory sets it already; the upgrade covers
+            // hand-built responses), then drop the bytes themselves.
             if ($request->method === HttpMethod::HEAD) {
+                if (!$response->headers->has('Content-Length')) {
+                    $response->headers->set('Content-Length', (string) $response->contentLength());
+                }
+
                 $response = new HttpResponse(
                     $response->version,
                     $response->status,

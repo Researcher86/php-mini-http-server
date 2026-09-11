@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\EventLoop;
 
 use Closure;
+use TypeError;
 use ValueError;
 
 /**
@@ -237,9 +238,12 @@ final class SelectLoop implements EventLoop
 
         try {
             // EINTR (a handled signal interrupting select) is not an error
-            // here — the loop just re-waits on the next iteration.
+            // here — the loop just re-waits on the next iteration. A stream
+            // that was closed between loop iterations throws too (ValueError
+            // on some PHP versions, TypeError on others); whichever it is,
+            // the dead watchers are dropped and the loop moves on.
             @stream_select($read, $write, $except, $seconds, $microseconds);
-        } catch (ValueError) {
+        } catch (\ValueError|\TypeError) {
             // A watched stream vanished between loop iterations — drop the dead ones.
             $this->dropClosedStreams();
 

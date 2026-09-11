@@ -209,6 +209,45 @@ final class ServerTest extends TestCase
         fclose($client);
     }
 
+    public function testIsDrainingReflectsGracefulShutdown(): void
+    {
+        $this->server->start();
+        $this->assertFalse($this->server->isDraining());
+
+        $this->server->drain();
+        $this->assertTrue($this->server->isDraining());
+    }
+
+    public function testCloseRestingConnectionsReapsIdleKeepAliveConnections(): void
+    {
+        $this->server->start();
+
+        $port = $this->server->getPort();
+
+        $idleClient = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($idleClient);
+        $idle = $this->server->accept();
+        $this->assertNotNull($idle);
+
+        $busyClient = stream_socket_client("tcp://127.0.0.1:$port");
+        $this->assertIsResource($busyClient);
+        $busy = $this->server->accept();
+        $this->assertNotNull($busy);
+        $busy->appendRead('partial'); // mid-exchange: must survive the reap
+
+        $this->server->drain();
+
+        $closed = $this->server->closeRestingConnections();
+
+        $this->assertSame([$idle], $closed);
+        $this->assertSame(1, $this->server->connectionCount());
+        $this->assertContains($busy, $this->server->connections());
+
+        $this->server->close($busy);
+        fclose($idleClient);
+        fclose($busyClient);
+    }
+
     public function testFinishClosesRemainingConnectionsAndStops(): void
     {
         $this->server->start();
