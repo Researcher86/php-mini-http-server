@@ -4,6 +4,7 @@ parameters:
         - src
         - bin
         - tests
+        - examples
 
 includes:
     - vendor/phpstan/phpstan-phpunit/extension.neon

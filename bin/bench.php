@@ -253,7 +253,7 @@ function runClient(int $port, int $requests, string $goFile): never
         $headerEnd = strpos($head, "\r\n\r\n") + 4;
         $length = 0;
 
-        if (preg_match('/^Content-Length:\s*(\d+)$/mi', substr($head, 0, $headerEnd), $m) === 1) {
+        if (preg_match('/^Content-Length:[ \t]*(\d+)[ \t]*\r?$/mi', substr($head, 0, $headerEnd), $m) === 1) {
             $length = (int) $m[1];
         }
 
