@@ -48,6 +48,16 @@ final class Router implements RequestHandler
         $this->add(HttpMethod::DELETE, $path, $handler);
     }
 
+    public function patch(string $path, Closure $handler): void
+    {
+        $this->add(HttpMethod::PATCH, $path, $handler);
+    }
+
+    public function options(string $path, Closure $handler): void
+    {
+        $this->add(HttpMethod::OPTIONS, $path, $handler);
+    }
+
     public function add(HttpMethod $method, string $path, Closure $handler): void
     {
         if (str_contains($path, '{')) {

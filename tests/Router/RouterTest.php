@@ -128,13 +128,17 @@ final class RouterTest extends TestCase
         $this->assertSame('ok', $this->router->dispatch($this->request('/search?q=php'))->body);
     }
 
-    public function testPutAndDeleteRegistrations(): void
+    public function testConvenienceRegistrationsForMutationAndOptionsMethods(): void
     {
         $this->router->put('/things/1', static fn (HttpRequest $r): HttpResponse => ResponseFactory::empty(HttpStatusCode::NO_CONTENT));
         $this->router->delete('/things/1', static fn (HttpRequest $r): HttpResponse => ResponseFactory::empty(HttpStatusCode::NO_CONTENT));
+        $this->router->patch('/things/1', static fn (HttpRequest $r): HttpResponse => ResponseFactory::empty(HttpStatusCode::NO_CONTENT));
+        $this->router->options('/things/1', static fn (HttpRequest $r): HttpResponse => ResponseFactory::empty(HttpStatusCode::NO_CONTENT));
 
         $this->assertSame(204, $this->router->dispatch($this->request('/things/1', HttpMethod::PUT))->statusCode());
         $this->assertSame(204, $this->router->dispatch($this->request('/things/1', HttpMethod::DELETE))->statusCode());
+        $this->assertSame(204, $this->router->dispatch($this->request('/things/1', HttpMethod::PATCH))->statusCode());
+        $this->assertSame(204, $this->router->dispatch($this->request('/things/1', HttpMethod::OPTIONS))->statusCode());
     }
 
     public function testCountsRegisteredRoutes(): void
