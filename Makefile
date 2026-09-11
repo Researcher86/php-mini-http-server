@@ -37,7 +37,7 @@ run-server-debug: up
 	docker compose exec php bash -c "XDEBUG_TRIGGER=1 php bin/server.php"
 
 run-client: up
-	docker compose exec php php bin/client.php
+	docker compose exec php php bin/client.php $(ARGS)
 
 # Master and client in one process, on a socket path of its own - runs
 # happily alongside run-server rather than fighting it for the default path.
