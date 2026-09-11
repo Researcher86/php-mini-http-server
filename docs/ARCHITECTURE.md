@@ -2,6 +2,12 @@
 
 > Internal architecture of `php-mini-http-server`.
 
+How the pieces fit together, in the order a request meets them. Two
+companion documents answer different questions: [PHASES.md](PHASES.md) is
+how this was built, one capability at a time, with the tests that hold each
+step; [DECISIONS.md](DECISIONS.md) is why it turned out this way — what was
+rejected, and which bugs changed a design.
+
 ---
 
 # Overview
@@ -522,10 +528,15 @@ During `DRAINING`:
 ```text
 ❌ New Connections
 
-✅ Existing Connections
+❌ New Requests On Existing Connections   → 503 + close
+
+✅ Requests Already In Flight
 
 ✅ Pending Responses
 ```
+
+A connection that is between requests when draining starts has nothing left
+to finish, so it is closed at once rather than waiting out its idle timeout.
 
 ---
 
@@ -566,6 +577,32 @@ Buffer Drains
 
 Resume Reads
 ```
+
+---
+
+# Error Containment
+
+One process serves every client, so an uncaught exception is not one failed
+request — it is the end of the server. Failures are therefore caught at three
+different distances from the application:
+
+```text
+Handler throws
+      │
+      ▼
+Error Middleware ──────────────→ 400 / 404 / 405 / 413 / 431 / 500 / 501
+      │
+      │  (the pipeline has returned; these are past its reach)
+      ▼
+Response cannot be encoded ────→ 500, connection survives
+      │
+      ▼
+Socket write fails ────────────→ this connection closes, the loop goes on
+```
+
+The middleware protects the application. The runtime protects itself, because
+encoding and writing happen after the pipeline is finished — on a later loop
+pass, in the write handler's case, where there is nobody left to catch for it.
 
 ---
 
