@@ -121,6 +121,28 @@ final class ServerRoundTripTest extends TestCase
         $this->assertSame('{"id":"1"}', $responses[1]['body']);
     }
 
+    public function testHandlerExceptionBecomes500AndTheConnectionKeepsServing(): void
+    {
+        $this->router->get('/boom', static function (): HttpResponse {
+            throw new \RuntimeException('handler exploded');
+        });
+
+        $responses = $this->exchange([
+            ['write' => "GET /boom HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => true],
+            ['write' => "GET /hello HTTP/1.1\r\nHost: t\r\n\r\n"],
+            ['read' => true],
+        ]);
+
+        // Phase 13's Definition of Done, at the level it is claimed: the
+        // failing request gets an answer, the process is still here, and the
+        // same connection serves the next request as if nothing happened.
+        $this->assertSame(500, $responses[0]['status']);
+        $this->assertSame("Internal Server Error\n", $responses[0]['body']);
+        $this->assertSame(200, $responses[1]['status']);
+        $this->assertSame('Hello', $responses[1]['body']);
+    }
+
     public function testUnknownPathReturns404(): void
     {
         $responses = $this->exchange([

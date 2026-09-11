@@ -979,6 +979,10 @@ One failed request does not stop the server.
   `testWrongMethodReturns405WithAllowHeader`,
   `testChunkedRequestIsRefusedWith501AndTheConnectionClosed`,
   `testConflictingContentLengthReturns400`.
+  `testHandlerExceptionBecomes500AndTheConnectionKeepsServing` is the
+  Definition of Done at the level it is claimed: a handler blows up, the
+  client gets a 500, and the very next request on the same connection is
+  served as if nothing had happened.
 - The Definition of Done is not "an error becomes a response" but "the
   server survives it", so three tests attack the loop itself:
   [tests/EventLoop/ConnectionHandlerTest.php](../tests/EventLoop/ConnectionHandlerTest.php) —
