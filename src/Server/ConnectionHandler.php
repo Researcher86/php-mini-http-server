@@ -34,7 +34,7 @@ use Closure;
  * all hand this handler the same pieces (loop, server, parser, pipeline,
  * encoder) instead of each re-implementing the byte-level dance.
  */
-final class ConnectionHandler
+final readonly class ConnectionHandler
 {
     /**
      * Phase 18: once a connection's queued responses exceed this many bytes
@@ -44,15 +44,15 @@ final class ConnectionHandler
     public const int MAX_BUFFERED_RESPONSE_BYTES = 65536;
 
     public function __construct(
-        private readonly SelectLoop $loop,
-        private readonly Server $server,
-        private readonly Connection $connection,
-        private readonly HttpParser $parser,
-        private readonly RequestHandler $application,
-        private readonly ResponseEncoder $encoder,
-        private readonly ServerMetrics $metrics,
-        private readonly Logger $logger,
-        private readonly int $maxBufferedResponseBytes = self::MAX_BUFFERED_RESPONSE_BYTES,
+        private SelectLoop $loop,
+        private Server $server,
+        private Connection $connection,
+        private HttpParser $parser,
+        private RequestHandler $application,
+        private ResponseEncoder $encoder,
+        private ServerMetrics $metrics,
+        private Logger $logger,
+        private int $maxBufferedResponseBytes = self::MAX_BUFFERED_RESPONSE_BYTES,
     ) {
     }
 
