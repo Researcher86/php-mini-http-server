@@ -2,31 +2,23 @@
 
 declare(strict_types=1);
 
-use App\EventLoop\SelectLoop;
-use App\Http\Middleware\ErrorHandlerMiddleware;
-use App\Http\Middleware\MiddlewarePipeline;
-use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\ResponseEncoder;
-use App\Http\Request\HttpRequest;
-use App\Http\Response\HttpResponse;
-use App\Http\Response\ResponseFactory;
-use App\Metrics\ServerMetrics;
-use App\Router\Router;
-use App\Server\ConnectionHandler;
-use App\Server\Server;
-use App\Server\ServerConfig;
-use App\Support\NullLogger;
-
-require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../benchmarks/bootstrap.php';
 
 /**
  * Phase 21: measure the server, event-loop style.
  *
- * A forked child runs the real server (same bin/server.php pipeline, one
- * event loop, N connections). The parent forks a configurable number of
- * blocking keep-alive clients, each firing a fixed number of sequential
- * requests and recording per-request latency. The parent aggregates:
- * requests per second, mean latency, p50/p95/p99 and peak memory.
+ * The question here is concurrency: how throughput and latency move as the
+ * number of simultaneous connections grows. A forked child runs the real
+ * server — benchmarks/bootstrap.php, which every benchmark shares, so they
+ * all measure the same thing — and this process forks a configurable
+ * number of blocking keep-alive clients, each firing a fixed number of
+ * sequential requests and recording per-request latency. The results are
+ * aggregated into requests per second, mean latency, p50/p95/p99 and peak
+ * memory.
+ *
+ * The other load questions — what pipelining buys, what a connection costs
+ * to set up, what it costs in memory — have a script each under
+ * benchmarks/.
  *
  * Usage:
  *     php bin/bench.php                # 1, 10, 100, 1000 connections
@@ -44,21 +36,9 @@ if (isset($argv[2])) {
     $requestsPerConnection = (int) $argv[2];
 }
 
-[$parentPipe, $childPipe] = serverPair();
+[$port, $serverPid] = benchServer();
 
-$serverPid = pcntl_fork();
-
-if ($serverPid === 0) {
-    runServer($parentPipe, $childPipe);
-}
-
-fclose($childPipe);
-$port = (int) trim((string) fgets($parentPipe));
-fclose($parentPipe);
-
-printf(
-    "concurrency  requests  rps       mean ms   p50 ms    p95 ms    p99 ms    peak mem\n",
-);
+printf("concurrency  requests  rps       mean ms   p50 ms    p95 ms    p99 ms    peak mem\n");
 
 $memoryPeak = 0;
 
@@ -76,71 +56,16 @@ foreach ($levels as $concurrency) {
         $result['p50'],
         $result['p95'],
         $result['p99'],
-        formatBytes($result['memory']),
+        benchFormatBytes($result['memory']),
     );
 }
 
-posix_kill($serverPid, SIGTERM);
-pcntl_waitpid($serverPid, $status);
+benchStop($serverPid);
 
-// measured in this (driver) process: the forked server's memory is not
-// visible from here, so this is honest reporting of what can be measured.
-printf("\nPeak driver memory: %s\n", formatBytes($memoryPeak));
+// Measured in this (driver) process. What a connection costs the SERVER is
+// a different question, and benchmarks/memory.php asks the server itself.
+printf("\nPeak driver memory: %s\n", benchFormatBytes($memoryPeak));
 printf("Done.\n");
-
-/**
- * The forked server process: same pipeline as bin/server.php minus the
- * demo noise, kept alive until the parent kills it.
- */
-function runServer(mixed $parentPipe, mixed $childPipe): never
-{
-    fclose($parentPipe);
-
-    $server = new Server(new ServerConfig(host: '127.0.0.1', port: 0));
-    $server->start();
-
-    $parser = new HttpParser();
-    $encoder = new ResponseEncoder();
-    $router = new Router();
-    $router->get('/hello', static fn (): HttpResponse => ResponseFactory::text('Hello, world!'));
-    $pipeline = new MiddlewarePipeline($router);
-    $pipeline->add(new ErrorHandlerMiddleware());
-
-    $metrics = new ServerMetrics();
-    $loop = new SelectLoop();
-
-    pcntl_async_signals(true);
-    pcntl_signal(SIGTERM, static fn () => $loop->stop());
-
-    // Each accepted connection runs the same ConnectionHandler state machine
-    // as bin/server.php, so the benchmark measures the real pipeline.
-    $loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $pipeline, $metrics): void {
-        $connection = $server->accept();
-
-        if ($connection === null) {
-            return;
-        }
-
-        (new ConnectionHandler(
-            loop: $loop,
-            server: $server,
-            connection: $connection,
-            parser: $parser,
-            application: $pipeline,
-            encoder: $encoder,
-            metrics: $metrics,
-            logger: new NullLogger(),
-        ))->start();
-    });
-
-    fwrite($childPipe, (string) $server->getPort() . "\n");
-    fclose($childPipe);
-
-    $loop->run();
-    $server->stop();
-
-    exit(0);
-}
 
 /**
  * Fork $concurrency client workers; each opens one keep-alive connection and
@@ -195,25 +120,13 @@ function runLevel(int $port, int $concurrency, int $requests): array
     $elapsed = (hrtime(true) - $started) / 1e9;
     $total = count($latencies);
 
-    sort($latencies);
-
-    $pct = static function (float $q) use ($latencies, $total): float {
-        if ($total === 0) {
-            return 0.0;
-        }
-
-        $index = (int) ceil($q / 100 * $total) - 1;
-
-        return $latencies[max(0, $index)];
-    };
-
     return [
         'requests' => $total,
         'rps' => $total / max($elapsed, 0.0001),
         'mean' => $total > 0 ? array_sum($latencies) / $total : 0.0,
-        'p50' => $pct(50),
-        'p95' => $pct(95),
-        'p99' => $pct(99),
+        'p50' => benchPercentile($latencies, 50),
+        'p95' => benchPercentile($latencies, 95),
+        'p99' => benchPercentile($latencies, 99),
         'memory' => memory_get_peak_usage(true),
     ];
 }
@@ -228,39 +141,22 @@ function runClient(int $port, int $requests, string $goFile): never
         usleep(1000);
     }
 
-    $socket = stream_socket_client("tcp://127.0.0.1:$port", $errno, $errstr, 10);
-
-    if ($socket === false) {
-        fwrite(STDERR, "bench client failed: $errstr\n");
-        exit(1);
-    }
-
+    $socket = benchConnect($port);
+    $request = benchRequestBytes('/hello');
     $lines = [];
 
     for ($i = 0; $i < $requests; $i++) {
         $start = hrtime(true);
 
-        fwrite($socket, "GET /hello HTTP/1.1\r\nHost: bench\r\n\r\n");
+        fwrite($socket, $request);
 
-        // Read one complete response: head through the blank line, then
-        // exactly Content-Length body bytes. Never over-read — the next
-        // request's response must be the next thing we time.
-        $head = '';
-        while (!str_contains($head, "\r\n\r\n")) {
-            $head .= fread($socket, 8192);
-        }
+        // benchReadResponse() stops on this response's last byte and never
+        // over-reads into the next one, which matters here: the next thing
+        // this loop times is exactly that next response.
+        if (!benchReadResponse($socket)) {
+            fwrite(STDERR, "bench client lost the connection\n");
 
-        $headerEnd = strpos($head, "\r\n\r\n") + 4;
-        $length = 0;
-
-        if (preg_match('/^Content-Length:[ \t]*(\d+)[ \t]*\r?$/mi', substr($head, 0, $headerEnd), $m) === 1) {
-            $length = (int) $m[1];
-        }
-
-        $body = substr($head, $headerEnd);
-
-        while (strlen($body) < $length) {
-            $body .= fread($socket, 8192);
+            exit(1);
         }
 
         $lines[] = (string) ((hrtime(true) - $start) / 1e6);
@@ -268,24 +164,8 @@ function runClient(int $port, int $requests, string $goFile): never
 
     fclose($socket);
     file_put_contents(latenciesFile((int) getmypid()), implode("\n", $lines) . "\n");
+
     exit(0);
-}
-
-/**
- * A guaranteed-open socket pair, or the process cannot measure anything.
- *
- * @return array{0: resource, 1: resource}
- */
-function serverPair(): array
-{
-    $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
-
-    if ($pair === false) {
-        fwrite(STDERR, "cannot create socket pair\n");
-        exit(1);
-    }
-
-    return [$pair[0], $pair[1]];
 }
 
 /**
@@ -295,11 +175,4 @@ function serverPair(): array
 function latenciesFile(int $id): string
 {
     return sys_get_temp_dir() . "/bench-$id.lat";
-}
-
-function formatBytes(int $bytes): string
-{
-    return $bytes < 1024 * 1024
-        ? sprintf('%.1f KB', $bytes / 1024)
-        : sprintf('%.1f MB', $bytes / (1024 * 1024));
 }

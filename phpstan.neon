@@ -5,6 +5,7 @@ parameters:
         - bin
         - tests
         - examples
+        - benchmarks
 
 includes:
     - vendor/phpstan/phpstan-phpunit/extension.neon
