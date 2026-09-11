@@ -29,9 +29,9 @@ run-server: up
 	docker compose exec php php bin/server.php
 
 # The image ships xdebug with start_with_request=trigger, so nothing reaches
-# for a debugger unless asked - which matters here, where one run is a master
-# plus N forked workers. These targets are the ask; point your IDE at port
-# 9003 first, or the connection attempt just times out and the run continues.
+# for a debugger unless asked. These targets are the ask; point your IDE at
+# port 9003 first, or the connection attempt just times out and the run
+# continues.
 
 run-server-debug: up
 	docker compose exec php bash -c "XDEBUG_TRIGGER=1 php bin/server.php"
@@ -39,8 +39,8 @@ run-server-debug: up
 run-client: up
 	docker compose exec php php bin/client.php $(ARGS)
 
-# Master and client in one process, on a socket path of its own - runs
-# happily alongside run-server rather than fighting it for the default path.
+# Forks its own server on an OS-assigned port, so it runs happily alongside
+# run-server rather than fighting it for 8080.
 run-example: up
 	docker compose exec php php bin/client_and_server.php
 

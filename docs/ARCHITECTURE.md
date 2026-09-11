@@ -458,21 +458,23 @@ Wait For Writable Event
 # Connection Lifecycle
 
 ```text
+NEW
+     │   connect()
+     ▼
 CONNECTED
-     │
+     │   startReading()
      ▼
 READING
-     │
+     │   startProcessing()
      ▼
 PROCESSING
-     │
+     │   startWriting()
      ▼
 WRITING
-     │
-     ├───────────────┐
-     │               │
-     ▼               ▼
-READING            CLOSED
+     │   ├───────────────┐
+     │   backToReading() │   close()
+     ▼                  ▼
+READING               CLOSED
 ```
 
 With Keep-Alive:

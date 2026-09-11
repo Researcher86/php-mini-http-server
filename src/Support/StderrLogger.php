@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace App\Support;
 
 /**
- * Timestamped lines to STDERR - kept apart from STDOUT, which the SIGUSR1
- * metrics dump (see Master) already uses as its own output channel.
+ * Timestamped lines to STDERR - kept apart from STDOUT, so server logs and
+ * script output (client responses, bench tables, /metrics dumps) can each be
+ * redirected or filtered independently.
  */
 final readonly class StderrLogger implements Logger
 {

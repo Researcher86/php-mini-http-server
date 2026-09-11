@@ -154,7 +154,10 @@ The central idea:
 php-mini-http-server/
 │
 ├── bin/
-│   └── server.php
+│   ├── server.php
+│   ├── client.php
+│   ├── client_and_server.php
+│   └── bench.php
 │
 ├── src/
 │
@@ -168,17 +171,15 @@ php-mini-http-server/
 │   │   ├── Request/
 │   │   ├── Response/
 │   │   ├── Headers/
-│   │   └── Protocol/
+│   │   ├── Protocol/
+│   │   ├── Middleware/
+│   │   └── Handler/
 │   │
-│   ├── Routing/
+│   ├── Router/
 │   │
-│   ├── Middleware/
+│   ├── Metrics/
 │   │
-│   ├── Handler/
-│   │
-│   ├── Timeout/
-│   │
-│   └── Metrics/
+│   └── Support/
 │
 ├── examples/
 ├── benchmarks/
@@ -187,8 +188,11 @@ php-mini-http-server/
 │
 ├── README.md
 ├── PLAN.md
+├── Makefile
+├── Dockerfile
 ├── composer.json
-└── phpunit.xml
+├── phpunit.xml
+└── phpstan.neon
 ```
 
 ---
