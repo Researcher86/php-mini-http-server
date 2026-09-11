@@ -75,11 +75,35 @@ final class ResponseEncoderTest extends TestCase
         $this->assertSame('abc', substr($raw, strlen($raw) - 3));
     }
 
-    public function testEmptyResponseHasNoBody(): void
+    public function testEmptyResponseFramesZeroContentLengthForKeepAlive(): void
     {
         $raw = $this->encoder->encode(ResponseFactory::empty());
 
-        $this->assertSame("HTTP/1.1 200 OK\r\n\r\n", $raw);
+        $this->assertSame("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", $raw);
+    }
+
+    public function testNoContentStatusOmitsContentLength(): void
+    {
+        $raw = $this->encoder->encode(ResponseFactory::empty(HttpStatusCode::NO_CONTENT));
+
+        $this->assertSame("HTTP/1.1 204 No Content\r\n\r\n", $raw);
+    }
+
+    public function testHandSetContentLengthIsRespected(): void
+    {
+        $headers = new Headers();
+        $headers->set('Content-Length', '0');
+
+        $response = new HttpResponse(
+            version: HttpVersion::HTTP_1_1,
+            status: HttpStatusCode::OK,
+            headers: $headers,
+            body: '',
+        );
+
+        $raw = $this->encoder->encode($response);
+
+        $this->assertSame("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", $raw);
     }
 
     public function testEncodedResponseParsesBackIntoExpectedShape(): void
