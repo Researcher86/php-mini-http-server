@@ -97,6 +97,38 @@ final class ServerTest extends TestCase
         $this->assertNull($this->server->accept());
     }
 
+    public function testConnectionsPastTheCeilingAreRefusedAtOnce(): void
+    {
+        $server = new Server(new ServerConfig(host: '127.0.0.1', port: 0, maxConnections: 2), $this->clock);
+        $server->start();
+
+        $port = $server->getPort();
+        $clients = [];
+
+        for ($i = 0; $i < 3; $i++) {
+            $client = stream_socket_client("tcp://127.0.0.1:$port");
+            $this->assertIsResource($client);
+            $clients[] = $client;
+        }
+
+        $this->assertNotNull($server->accept());
+        $this->assertNotNull($server->accept());
+
+        // The third is accepted by the kernel and closed by us: the client
+        // is told immediately rather than left queued behind a server that
+        // will never get to it.
+        $this->assertNull($server->accept());
+
+        $this->assertSame(2, $server->connectionCount());
+        $this->assertSame(1, $server->refusedConnections());
+
+        $server->stop();
+
+        foreach ($clients as $client) {
+            fclose($client);
+        }
+    }
+
     public function testStopClosesSocketAndFlipsState(): void
     {
         $this->server->start();

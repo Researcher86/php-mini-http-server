@@ -33,6 +33,8 @@ final class Server
 
     private int $nextConnectionId = 1;
 
+    private int $refusedConnections = 0;
+
     private ServerState $state = ServerState::STOPPED;
 
     public function __construct(
@@ -78,7 +80,8 @@ final class Server
     /**
      * Accept one pending client connection and wrap it in a Connection.
      *
-     * @return Connection|null the new connection, or null when nothing is pending
+     * @return Connection|null the new connection, or null when nothing is
+     *                         pending or the connection ceiling is reached
      */
     public function accept(): ?Connection
     {
@@ -89,6 +92,18 @@ final class Server
         $client = @stream_socket_accept($this->socket, 0, $peer);
 
         if ($client === false) {
+            return null;
+        }
+
+        // At the ceiling the connection is accepted and immediately closed,
+        // rather than left waiting in the backlog. The client learns at
+        // once that it will not be served; leaving it queued would look
+        // like a server that is merely slow, and it would stay queued until
+        // its own timeout. See ServerConfig on why there is a ceiling.
+        if (count($this->connections) >= $this->config->maxConnections) {
+            fclose($client);
+            $this->refusedConnections++;
+
             return null;
         }
 
@@ -197,6 +212,15 @@ final class Server
     public function connectionCount(): int
     {
         return count($this->connections);
+    }
+
+    /**
+     * How many connections have been turned away at the ceiling. A number
+     * that is not zero means the server is smaller than its traffic.
+     */
+    public function refusedConnections(): int
+    {
+        return $this->refusedConnections;
     }
 
     /**

@@ -95,7 +95,8 @@ $router->get('/metrics', static function () use ($metrics, $server, $loop): Http
         . "loop_busy_seconds %.3f\n"
         . "loop_idle_seconds %.3f\n"
         . "loop_utilisation %.3f\n"
-        . "loop_max_lag_ms %.3f\n",
+        . "loop_max_lag_ms %.3f\n"
+        . "refused_connections %d\n",
         $server->connectionCount(),
         $metrics->totalRequests(),
         $metrics->requestsPerSecond(),
@@ -108,6 +109,7 @@ $router->get('/metrics', static function () use ($metrics, $server, $loop): Http
         $loopMetrics->idleSeconds(),
         $loopMetrics->utilisation(),
         $loopMetrics->maxLagSeconds() * 1000,
+        $server->refusedConnections(),
     ));
 });
 
