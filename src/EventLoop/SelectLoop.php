@@ -107,6 +107,13 @@ final class SelectLoop implements EventLoop
         $this->running = true;
 
         while ($this->running) {
+            // Swept up front, not only when select() complains: a stream
+            // closed since the last pass (the idle sweep closes connections
+            // on a timer, without telling the loop) would otherwise make
+            // stream_select() throw and cost every other connection its
+            // turn.
+            $this->dropClosedStreams();
+
             if (!$this->hasWork()) {
                 // Nothing left to wait for — no streams, no live timers.
                 // A server always keeps its listening socket watched, so it
@@ -265,9 +272,18 @@ final class SelectLoop implements EventLoop
         return [$seconds, $microseconds];
     }
 
+    /**
+     * select() reports which streams were ready when it returned, and a
+     * handler earlier in the same pass may have closed one of them since —
+     * a sweep, a broadcast, a shutdown closing connections it does not own.
+     * Handing that handler a closed resource is a TypeError, not a warning,
+     * and it would end the loop for every other client too. So readiness is
+     * re-checked against the watch list and the resource itself, right
+     * before the call.
+     */
     private function dispatchRead(int $id, mixed $stream): void
     {
-        if (!isset($this->readHandlers[$id])) {
+        if (!isset($this->readHandlers[$id]) || !is_resource($stream)) {
             return;
         }
 
@@ -276,7 +292,7 @@ final class SelectLoop implements EventLoop
 
     private function dispatchWrite(int $id, mixed $stream): void
     {
-        if (!isset($this->writeHandlers[$id])) {
+        if (!isset($this->writeHandlers[$id]) || !is_resource($stream)) {
             return;
         }
 

@@ -72,6 +72,40 @@ final class SelectLoopTest extends TestCase
         }
     }
 
+    public function testStreamClosedByAnEarlierHandlerIsNotDispatched(): void
+    {
+        [$serverA, $clientA, $serverB, $clientB] = $this->twoPairs();
+
+        $loop = $this->loop;
+        $fired = [];
+
+        // Both sockets go into the same select() pass. A's handler closes
+        // B — the shape any sweep, broadcast or shutdown handler takes when
+        // it closes a connection it does not itself own.
+        $this->loop->onReadable($serverA, static function ($stream) use (&$fired, $serverB): void {
+            $fired[] = 'a';
+            fread($stream, 8192);
+            fclose($serverB);
+        });
+        $this->loop->onReadable($serverB, static function ($stream) use (&$fired): void {
+            $fired[] = 'b';
+            fread($stream, 8192); // a TypeError on a closed stream, and it ends the loop
+        });
+
+        fwrite($clientA, 'a');
+        fwrite($clientB, 'b');
+
+        $this->loop->addTimer(0.1, static fn () => $loop->stop());
+        $this->loop->run();
+
+        $this->assertSame(['a'], $fired);
+        $this->assertSame(1, $this->loop->watchedReadableCount());
+
+        fclose($serverA);
+        fclose($clientA);
+        fclose($clientB);
+    }
+
     public function testWritableHandlerFires(): void
     {
         [$server, $client] = $this->socketPair();
