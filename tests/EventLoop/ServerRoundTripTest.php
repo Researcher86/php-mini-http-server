@@ -7,17 +7,17 @@ namespace App\Tests\EventLoop;
 use App\EventLoop\SelectLoop;
 use App\Http\Middleware\ErrorHandlerMiddleware;
 use App\Http\Middleware\MiddlewarePipeline;
-use App\Http\Protocol\HttpMethod;
 use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\MalformedRequestException;
 use App\Http\Protocol\ResponseEncoder;
 use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
-use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
+use App\Metrics\ServerMetrics;
 use App\Router\Router;
+use App\Server\ConnectionHandler;
 use App\Server\Server;
 use App\Server\ServerConfig;
+use App\Support\NullLogger;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -165,73 +165,16 @@ final class ServerRoundTripTest extends TestCase
                 return;
             }
 
-            $connection->startReading();
-
-            $loop->onReadable($connection->socket(), static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $pipeline): void {
-                $data = fread($stream, 8192);
-
-                if ($data === false || $data === '') {
-                    $loop->removeReadable($stream);
-                    $server->close($connection);
-                    return;
-                }
-
-                $connection->appendRead($data);
-
-                $closeAfter = false;
-
-                while (true) {
-                    try {
-                        $parsed = $parser->parse((string) $connection->readBuffer());
-                    } catch (MalformedRequestException) {
-                        $connection->queueWrite($encoder->encode(
-                            ResponseFactory::text('Bad Request' . PHP_EOL, HttpStatusCode::BAD_REQUEST),
-                        ));
-                        $closeAfter = true;
-                        break;
-                    }
-
-                    if ($parsed === null) {
-                        break;
-                    }
-
-                    $connection->readBuffer()->consume($parsed->consumedBytes);
-
-                    $request = $parsed->request;
-                    $keepAlive = $request->wantsKeepAlive();
-                    $response = $pipeline->handle($request);
-
-                    if ($request->method === HttpMethod::HEAD) {
-                        $response = new HttpResponse(
-                            $response->version,
-                            $response->status,
-                            $response->headers,
-                            '',
-                        );
-                    }
-
-                    $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
-                    $connection->queueWrite($encoder->encode($response));
-
-                    if (!$keepAlive) {
-                        $closeAfter = true;
-                        break;
-                    }
-                }
-
-                $loop->onWritable($connection->socket(), static function ($s) use ($loop, $server, $connection, $closeAfter, $stream): void {
-                    $connection->flushWrite($s);
-
-                    if ($connection->writeBuffer()->isEmpty()) {
-                        $loop->removeWritable($s);
-
-                        if ($closeAfter) {
-                            $loop->removeReadable($stream);
-                            $server->close($connection);
-                        }
-                    }
-                });
-            });
+            (new ConnectionHandler(
+                loop: $loop,
+                server: $server,
+                connection: $connection,
+                parser: $parser,
+                application: $pipeline,
+                encoder: $encoder,
+                metrics: new ServerMetrics(),
+                logger: new NullLogger(),
+            ))->start();
         });
 
         $client = stream_socket_client("tcp://127.0.0.1:{$server->getPort()}");

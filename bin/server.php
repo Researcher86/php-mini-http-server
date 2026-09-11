@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Connection\Connection;
 use App\EventLoop\SelectLoop;
 use App\Http\Handler\HelloHandler;
 use App\Http\Handler\RequestHandler;
@@ -10,11 +9,7 @@ use App\Http\Middleware\ErrorHandlerMiddleware;
 use App\Http\Middleware\LoggingMiddleware;
 use App\Http\Middleware\MiddlewareInterface;
 use App\Http\Middleware\MiddlewarePipeline;
-use App\Http\Protocol\BodyTooLargeException;
-use App\Http\Protocol\HeaderTooLargeException;
-use App\Http\Protocol\HttpMethod;
 use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\MalformedRequestException;
 use App\Http\Protocol\ResponseEncoder;
 use App\Http\Request\HttpRequest;
 use App\Http\Response\HttpResponse;
@@ -22,18 +17,13 @@ use App\Http\Response\HttpStatusCode;
 use App\Http\Response\ResponseFactory;
 use App\Metrics\ServerMetrics;
 use App\Router\Router;
+use App\Server\ConnectionHandler;
 use App\Server\Server;
 use App\Server\ServerConfig;
 use App\Server\ServerStartException;
 use App\Support\StderrLogger;
 
 require __DIR__ . '/../vendor/autoload.php';
-
-/**
- * Phase 18: once a connection's queued responses exceed this many bytes we
- * stop reading from that client until the write buffer drains back down.
- */
-const MAX_BUFFERED_RESPONSE_BYTES = 65536;
 
 /**
  * Phases 5-16: raw TCP bytes become HttpRequest objects, the router picks
@@ -188,31 +178,11 @@ $loop->every(1.0, static function () use (&$draining, $loop, $server, $logger): 
 });
 
 /**
- * Drain a connection's write buffer into its socket, waiting on writable
- * events for however long the socket needs, then run $onDrained once the
- * buffer is fully empty. Everything flows through the buffer so a socket
- * that accepts only part of a large response is handled the same way as a
- * socket that takes it all at once.
- *
- * @param Closure(): void|null $onDrained
+ * Accept new clients and hand each connection its own ConnectionHandler —
+ * the per-connection state machine that parses, routes and flushes (Phase
+ * 15 backpressure, Phase 14 keep-alive, Phase 13 errors all live inside).
  */
-$drain = static function (SelectLoop $loop, Connection $connection, ?Closure $onDrained = null) use ($metrics): void {
-    $stream = $connection->socket();
-
-    $loop->onWritable($stream, static function ($s) use ($loop, $connection, $onDrained, $metrics): void {
-        $metrics->recordBytesWritten($connection->flushWrite($s));
-
-        if ($connection->writeBuffer()->isEmpty()) {
-            $loop->removeWritable($s);
-
-            if ($onDrained !== null) {
-                $onDrained();
-            }
-        }
-    });
-};
-
-$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $routerNotFound, $drain, $metrics, $logger): void {
+$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $routerNotFound, $metrics, $logger): void {
     $connection = $server->accept();
 
     if ($connection === null) {
@@ -221,144 +191,16 @@ $loop->onReadable($server->socket(), static function ($stream) use ($loop, $serv
 
     $logger->log(sprintf('#%d connected from %s', $connection->id, $connection->remoteAddress()));
 
-    $connection->startReading();
-
-    $onData = null;
-
-    $onData = static function ($stream) use ($loop, $server, $connection, $parser, $encoder, $routerNotFound, $drain, $metrics, $logger, &$onData): void {
-        $data = fread($stream, 8192);
-
-        if ($data === false || $data === '') { // EOF → client is gone
-            $loop->removeReadable($stream);
-            $server->close($connection);
-            return;
-        }
-
-        $connection->appendRead($data);
-        $metrics->recordBytesRead(strlen($data));
-
-        $closeAfterDrain = false;
-        $queued = false;
-        $paused = false;
-
-        // Phase 15: one read may carry several pipelined requests. Keep
-        // parsing while the buffer holds complete requests, queueing their
-        // responses in order; stop only when a request says "close", there
-        // is nothing complete left, or the write buffer hits the ceiling.
-        while (true) {
-            try {
-                $parsed = $parser->parse((string) $connection->readBuffer());
-            } catch (MalformedRequestException $e) {
-                $logger->log(sprintf('#%d malformed request: %s', $connection->id, $e->getMessage()));
-
-                $connection->queueWrite($encoder->encode(
-                    ResponseFactory::text('Bad Request' . PHP_EOL, HttpStatusCode::BAD_REQUEST),
-                ));
-                $closeAfterDrain = true;
-                $queued = true;
-                break;
-            } catch (HeaderTooLargeException $e) {
-                $logger->log(sprintf('#%d header too large: %s', $connection->id, $e->getMessage()));
-
-                $connection->queueWrite($encoder->encode(
-                    ResponseFactory::text('Request Header Fields Too Large' . PHP_EOL, HttpStatusCode::HEADER_TOO_LARGE),
-                ));
-                $closeAfterDrain = true;
-                $queued = true;
-                break;
-            } catch (BodyTooLargeException $e) {
-                $logger->log(sprintf('#%d body too large: %s', $connection->id, $e->getMessage()));
-
-                $connection->queueWrite($encoder->encode(
-                    ResponseFactory::text('Payload Too Large' . PHP_EOL, HttpStatusCode::PAYLOAD_TOO_LARGE),
-                ));
-                $closeAfterDrain = true;
-                $queued = true;
-                break;
-            }
-
-            if ($parsed === null) {
-                // A complete request has not arrived yet — the header clock
-                // starts (or keeps running) so the Slowloris sweep can reap
-                // a connection that never finishes its headers.
-                $connection->noteWaitingForHeaders();
-                break; // wait for more bytes
-            }
-
-            $connection->doneWaitingForHeaders();
-            $connection->readBuffer()->consume($parsed->consumedBytes);
-
-            $request = $parsed->request;
-            $startedAt = microtime(true);
-
-            $keepAlive = $request->wantsKeepAlive();
-            $response = $routerNotFound->handle($request);
-
-            // HEAD is GET without a body: keep the headers (Content-Length
-            // reflects the would-be GET body) but drop the body itself.
-            if ($request->method === HttpMethod::HEAD) {
-                $response = new HttpResponse(
-                    $response->version,
-                    $response->status,
-                    $response->headers,
-                    '',
-                );
-            }
-
-            $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
-
-            $metrics->recordRequest(microtime(true) - $startedAt);
-
-            $connection->queueWrite($encoder->encode($response));
-            $queued = true;
-
-            if (!$keepAlive) {
-                $closeAfterDrain = true;
-                break;
-            }
-
-            // Phase 18: a slow client lets the write buffer grow. Past the
-            // ceiling we stop pulling more requests off the socket — reading
-            // pauses until the buffer drains below it, then resumes.
-            if ($connection->hasBufferedMoreThan(MAX_BUFFERED_RESPONSE_BYTES)) {
-                $paused = true;
-                break;
-            }
-        }
-
-        if (!$queued) {
-            return; // nothing complete yet — wait for more bytes
-        }
-
-        $connection->startWriting();
-
-        if ($paused) {
-            // Backpressure: stop accepting more data until the write buffer
-            // has drained, then re-arm the reader.
-            $logger->log(sprintf('#%d write buffer at %d bytes — pausing reads', $connection->id, $connection->writeBufferLength()));
-            $loop->removeReadable($stream);
-
-            $drain($loop, $connection, static function () use ($loop, $stream, $connection, $logger, &$onData): void {
-                $connection->backToReading();
-                $loop->onReadable($stream, $onData);
-                $logger->log(sprintf('#%d write buffer drained — resuming reads', $connection->id));
-            });
-            return;
-        }
-
-        // Phase 14+15: after the queued responses are fully written the
-        // connection either goes back to reading (keep-alive) or closes.
-        $drain($loop, $connection, $closeAfterDrain
-            ? static function () use ($loop, $stream, $server, $connection): void {
-                $loop->removeReadable($stream);
-                $server->close($connection);
-            }
-            : static function () use ($connection): void {
-                $connection->backToReading();
-            });
-    };
-
-    $loop->onReadable($connection->socket(), $onData);
+    (new ConnectionHandler(
+        loop: $loop,
+        server: $server,
+        connection: $connection,
+        parser: $parser,
+        application: $routerNotFound,
+        encoder: $encoder,
+        metrics: $metrics,
+        logger: $logger,
+    ))->start();
 });
 
 printf("Listening on tcp://%s:%d\n", $server->getHost(), $server->getPort());

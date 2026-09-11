@@ -1,0 +1,252 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Server;
+
+use App\Connection\Connection;
+use App\EventLoop\SelectLoop;
+use App\Http\Handler\RequestHandler;
+use App\Http\Protocol\BodyTooLargeException;
+use App\Http\Protocol\HeaderTooLargeException;
+use App\Http\Protocol\HttpMethod;
+use App\Http\Protocol\HttpParser;
+use App\Http\Protocol\MalformedRequestException;
+use App\Http\Protocol\ResponseEncoder;
+use App\Http\Response\HttpResponse;
+use App\Http\Response\HttpStatusCode;
+use App\Http\Response\ResponseFactory;
+use App\Metrics\ServerMetrics;
+use App\Support\Logger;
+use Closure;
+
+/**
+ * Drives a single accepted connection through its whole life.
+ *
+ * This is the per-connection state machine that bin/server.php used to
+ * spell out inline. As one object it can be shared by every entry point
+ * that needs "read bytes, parse requests, route them, write responses":
+ *
+ *     READ / parse / route / queue  →  WRITE / flush / drain  →  READ again
+ *                                                           └→ close
+ *
+ * The demo server, the fork-based demo script and the integration tests
+ * all hand this handler the same pieces (loop, server, parser, pipeline,
+ * encoder) instead of each re-implementing the byte-level dance.
+ */
+final class ConnectionHandler
+{
+    /**
+     * Phase 18: once a connection's queued responses exceed this many bytes
+     * we stop reading from that client until the write buffer drains back
+     * down — a slow client must not make the server buffer unbounded work.
+     */
+    public const int MAX_BUFFERED_RESPONSE_BYTES = 65536;
+
+    public function __construct(
+        private readonly SelectLoop $loop,
+        private readonly Server $server,
+        private readonly Connection $connection,
+        private readonly HttpParser $parser,
+        private readonly RequestHandler $application,
+        private readonly ResponseEncoder $encoder,
+        private readonly ServerMetrics $metrics,
+        private readonly Logger $logger,
+        private readonly int $maxBufferedResponseBytes = self::MAX_BUFFERED_RESPONSE_BYTES,
+    ) {
+    }
+
+    /**
+     * Arm the connection: enter READING and let the loop watch its socket.
+     */
+    public function start(): void
+    {
+        $this->connection->startReading();
+        $this->loop->onReadable($this->connection->socket(), $this->handleReadable(...));
+    }
+
+    private function handleReadable(mixed $stream): void
+    {
+        $data = fread($stream, 8192);
+
+        if ($data === false || $data === '') { // EOF → the client is gone
+            $this->close();
+
+            return;
+        }
+
+        $this->connection->appendRead($data);
+        $this->metrics->recordBytesRead(strlen($data));
+
+        $this->serviceRequests($stream);
+    }
+
+    private function serviceRequests(mixed $stream): void
+    {
+        $closeAfterDrain = false;
+        $queued = false;
+        $paused = false;
+
+        // Phase 15: one read may carry several pipelined requests. Keep
+        // parsing while the buffer holds complete requests, queueing their
+        // responses in order; stop only when a request says "close", there
+        // is nothing complete left, or the write buffer hits the ceiling.
+        while (true) {
+            try {
+                $parsed = $this->parser->parse((string) $this->connection->readBuffer());
+            } catch (MalformedRequestException $e) {
+                $this->queueError(HttpStatusCode::BAD_REQUEST, 'Bad Request', $e);
+                $closeAfterDrain = true;
+                $queued = true;
+                break;
+            } catch (HeaderTooLargeException $e) {
+                $this->queueError(HttpStatusCode::HEADER_TOO_LARGE, 'Request Header Fields Too Large', $e);
+                $closeAfterDrain = true;
+                $queued = true;
+                break;
+            } catch (BodyTooLargeException $e) {
+                $this->queueError(HttpStatusCode::PAYLOAD_TOO_LARGE, 'Payload Too Large', $e);
+                $closeAfterDrain = true;
+                $queued = true;
+                break;
+            }
+
+            if ($parsed === null) {
+                // No complete request yet — the header clock starts (or
+                // keeps running) so the Slowloris sweep can reap a client
+                // that never finishes its header block.
+                $this->connection->noteWaitingForHeaders();
+                break; // wait for more bytes
+            }
+
+            $this->connection->doneWaitingForHeaders();
+            $this->connection->readBuffer()->consume($parsed->consumedBytes);
+
+            $request = $parsed->request;
+            $startedAt = microtime(true);
+
+            $keepAlive = $request->wantsKeepAlive();
+            $response = $this->application->handle($request);
+
+            // HEAD is GET without a body: keep the headers (Content-Length
+            // reflects the would-be GET body) but drop the body itself.
+            if ($request->method === HttpMethod::HEAD) {
+                $response = new HttpResponse(
+                    $response->version,
+                    $response->status,
+                    $response->headers,
+                    '',
+                );
+            }
+
+            $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
+
+            $this->metrics->recordRequest(microtime(true) - $startedAt);
+
+            $this->connection->queueWrite($this->encoder->encode($response));
+            $queued = true;
+
+            if (!$keepAlive) {
+                $closeAfterDrain = true;
+                break;
+            }
+
+            // Phase 18 backpressure: past the ceiling we stop pulling more
+            // requests off the socket until the buffer drains, then resume.
+            if ($this->connection->hasBufferedMoreThan($this->maxBufferedResponseBytes)) {
+                $paused = true;
+                break;
+            }
+        }
+
+        if (!$queued) {
+            return; // nothing complete yet — wait for more bytes
+        }
+
+        $this->connection->startWriting();
+
+        if ($paused) {
+            $this->pauseReadsUntilDrained($stream);
+
+            return;
+        }
+
+        // Phase 14+15: once the queued responses are fully written the
+        // connection either goes back to READING (keep-alive) or closes.
+        $this->drain($closeAfterDrain
+            ? $this->close(...)
+            : $this->connection->backToReading(...));
+    }
+
+    /**
+     * Queue an error response and log it, then let the connection handshake
+     * close once the response is flushed — after 400/413/431 the request
+     * stream is already broken and there is no safe way to reuse it.
+     */
+    private function queueError(HttpStatusCode $status, string $reason, \Throwable $e): void
+    {
+        $this->logger->log(sprintf('#%d %s: %s', $this->connection->id, $reason, $e->getMessage()));
+
+        $this->connection->queueWrite($this->encoder->encode(
+            ResponseFactory::text($reason . PHP_EOL, $status),
+        ));
+    }
+
+    private function pauseReadsUntilDrained(mixed $stream): void
+    {
+        $this->logger->log(sprintf(
+            '#%d write buffer at %d bytes — pausing reads',
+            $this->connection->id,
+            $this->connection->writeBufferLength(),
+        ));
+
+        $this->loop->removeReadable($stream);
+
+        $this->drain(function () use ($stream): void {
+            $this->connection->backToReading();
+            $this->loop->onReadable($stream, $this->handleReadable(...));
+            $this->logger->log(sprintf('#%d write buffer drained — resuming reads', $this->connection->id));
+
+            // Requests already sitting in the buffer when the pause hit
+            // would never be woken by new network bytes — serve them now.
+            if (!$this->connection->readBuffer()->isEmpty()) {
+                $this->serviceRequests($stream);
+            }
+        });
+    }
+
+    /**
+     * Watch the connection's socket for writable events, flushing whatever
+     * the buffer holds; once the buffer is empty run $onDrained.
+     *
+     * Everything flows through the buffer, so a socket that accepts only
+     * part of a large response is handled the same way as a socket that
+     * takes it all at once.
+     *
+     * @param Closure(): void|null $onDrained
+     */
+    private function drain(?Closure $onDrained = null): void
+    {
+        $stream = $this->connection->socket();
+
+        $this->loop->onWritable($stream, function ($s) use ($onDrained): void {
+            $this->metrics->recordBytesWritten($this->connection->flushWrite($s));
+
+            if (!$this->connection->writeBuffer()->isEmpty()) {
+                return; // the socket took part of it — wait for the next writable event
+            }
+
+            $this->loop->removeWritable($s);
+
+            if ($onDrained !== null) {
+                $onDrained();
+            }
+        });
+    }
+
+    private function close(): void
+    {
+        $this->loop->removeReadable($this->connection->socket());
+        $this->server->close($this->connection);
+    }
+}
