@@ -1238,7 +1238,7 @@ Repository:
 https://github.com/Researcher86/php-job-queue
 ```
 
-## [PHP Mini Redis](https://github.com/Researcher86/php-mini-redis)
+## [PHP Mini Cache](https://github.com/Researcher86/php-mini-cache)
 
 An educational event-driven in-memory database server.
 
@@ -1255,7 +1255,7 @@ It explores:
 `php-mini-http-server` builds directly on many of these concepts.
 
 ```text
-php-mini-redis
+php-mini-cache
         ↓
 TCP Server
         ↓
@@ -1286,7 +1286,7 @@ Request Handling
           ┌────────────────┼────────────────┐
           │                │                │
           ▼                ▼                ▼
-   php-worker-pool   php-mini-redis     Experiments
+   php-worker-pool   php-mini-cache     Experiments
           │                │
           ▼                ▼
    php-job-queue   php-mini-http-server

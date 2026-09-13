@@ -360,7 +360,7 @@ is request smuggling.
 
 They were found by writing the contract down as a table
 ([tests/Http/Protocol/HttpParserFuzzTest.php](../tests/Http/Protocol/HttpParserFuzzTest.php),
-the idea taken from php-mini-redis), which forced a verdict on cases nobody
+the idea taken from php-mini-cache), which forced a verdict on cases nobody
 had thought to have an opinion about:
 
 - **`Host : evil`** was trimmed into a valid `Host`. RFC 7230 3.2.4 makes
@@ -429,19 +429,19 @@ desynchronise from it.
 # Borrowed from the sibling projects
 
 Several things here came from reading
-[php-mini-redis](https://github.com/Researcher86/php-mini-redis) and
+[php-mini-cache](https://github.com/Researcher86/php-mini-cache) and
 [php-job-queue](https://github.com/Researcher86/php-job-queue), which solve
 different problems with the same shape of runtime. Recorded because
 "where did this come from" is exactly what a reader cannot reconstruct:
 
-- **The parser fuzz table** and **the event-loop metrics** are php-mini-redis's
+- **The parser fuzz table** and **the event-loop metrics** are php-mini-cache's
   `RespParserFuzzTest` and `EventLoopMetrics`, adapted. Both earned their
   keep immediately: the table found five leniencies, and the metrics made
   a documented warning into a number.
 - **`Clock` / `SystemClock` / `FakeClock`** and **`maxConnections`** are
-  php-mini-redis's too.
+  php-mini-cache's too.
 - **The `examples/` shape** — one script, one question in its docblock, the
-  answer printed against a real server — is php-mini-redis's, and writing
+  answer printed against a real server — is php-mini-cache's, and writing
   the graceful-shutdown one found the `select()` bug above. Which is the
   argument for having examples at all: a test asserts what you thought to
   assert, and a script you have to watch run shows you what you did not.
@@ -449,7 +449,7 @@ different problems with the same shape of runtime. Recorded because
   became a settled question rather than a per-file judgement call, so a
   diff shows a change in behaviour and never a change in brace placement.
 
-One thing was deliberately *not* taken. php-mini-redis reschedules a
+One thing was deliberately *not* taken. php-mini-cache reschedules a
 periodic timer to `now + interval`; this project anchors it to the original
 schedule instead, so a slow pass makes a timer late once rather than sliding
 its whole cadence later. Neither fires repeatedly to catch up, which is the
