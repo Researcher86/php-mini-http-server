@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Tests;
+namespace PhpMiniHttpServer\Tests;
 
-use App\Server\Server;
+use PhpMiniHttpServer\Server\Server;
 use PHPUnit\Framework\TestCase;
 
 final class ProjectSetupTest extends TestCase

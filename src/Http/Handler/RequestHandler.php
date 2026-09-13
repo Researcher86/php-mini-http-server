@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Handler;
+namespace PhpMiniHttpServer\Http\Handler;
 
-use App\Http\Request\HttpRequest;
-use App\Http\Response\HttpResponse;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
 
 /**
  * Something that turns one request into one response.

@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Http\Middleware;
+namespace PhpMiniHttpServer\Tests\Http\Middleware;
 
-use App\Http\Handler\RequestHandler;
-use App\Http\Headers\Headers;
-use App\Http\Middleware\MiddlewareInterface;
-use App\Http\Middleware\MiddlewarePipeline;
-use App\Http\Protocol\HttpMethod;
-use App\Http\Protocol\HttpVersion;
-use App\Http\Request\HttpRequest;
-use App\Http\Response\HttpResponse;
-use App\Http\Response\HttpStatusCode;
-use App\Http\Response\ResponseFactory;
+use PhpMiniHttpServer\Http\Handler\RequestHandler;
+use PhpMiniHttpServer\Http\Headers\Headers;
+use PhpMiniHttpServer\Http\Middleware\MiddlewareInterface;
+use PhpMiniHttpServer\Http\Middleware\MiddlewarePipeline;
+use PhpMiniHttpServer\Http\Protocol\HttpMethod;
+use PhpMiniHttpServer\Http\Protocol\HttpVersion;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
+use PhpMiniHttpServer\Http\Response\HttpStatusCode;
+use PhpMiniHttpServer\Http\Response\ResponseFactory;
 use PHPUnit\Framework\TestCase;
 
 final class MiddlewarePipelineTest extends TestCase

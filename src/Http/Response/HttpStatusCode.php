@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Response;
+namespace PhpMiniHttpServer\Http\Response;
 
 /**
  * HTTP status codes the server can produce, with their RFC reason phrases.

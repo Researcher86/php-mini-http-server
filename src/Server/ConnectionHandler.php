@@ -2,23 +2,23 @@
 
 declare(strict_types=1);
 
-namespace App\Server;
+namespace PhpMiniHttpServer\Server;
 
-use App\Connection\Connection;
-use App\Connection\WriteBufferException;
-use App\EventLoop\SelectLoop;
-use App\Http\Handler\RequestHandler;
-use App\Http\Protocol\HttpMethod;
-use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\RequestException;
-use App\Http\Protocol\ResponseEncoder;
-use App\Http\Request\HttpRequest;
-use App\Http\Response\HttpResponse;
-use App\Http\Response\HttpStatusCode;
-use App\Http\Response\ResponseFactory;
-use App\Metrics\ServerMetrics;
-use App\Support\Logger;
 use Closure;
+use PhpMiniHttpServer\Connection\Connection;
+use PhpMiniHttpServer\Connection\WriteBufferException;
+use PhpMiniHttpServer\EventLoop\SelectLoop;
+use PhpMiniHttpServer\Http\Handler\RequestHandler;
+use PhpMiniHttpServer\Http\Protocol\HttpMethod;
+use PhpMiniHttpServer\Http\Protocol\HttpParser;
+use PhpMiniHttpServer\Http\Protocol\RequestException;
+use PhpMiniHttpServer\Http\Protocol\ResponseEncoder;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
+use PhpMiniHttpServer\Http\Response\HttpStatusCode;
+use PhpMiniHttpServer\Http\Response\ResponseFactory;
+use PhpMiniHttpServer\Metrics\ServerMetrics;
+use PhpMiniHttpServer\Support\Logger;
 use Throwable;
 
 /**

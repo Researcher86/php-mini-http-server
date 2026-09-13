@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Router;
+namespace PhpMiniHttpServer\Tests\Router;
 
-use App\Http\Headers\Headers;
-use App\Http\Protocol\HttpMethod;
-use App\Http\Protocol\HttpVersion;
-use App\Http\Request\HttpRequest;
-use App\Http\Response\HttpResponse;
-use App\Http\Response\HttpStatusCode;
-use App\Http\Response\ResponseFactory;
-use App\Router\MethodNotAllowedException;
-use App\Router\RouteNotFoundException;
-use App\Router\Router;
 use InvalidArgumentException;
+use PhpMiniHttpServer\Http\Headers\Headers;
+use PhpMiniHttpServer\Http\Protocol\HttpMethod;
+use PhpMiniHttpServer\Http\Protocol\HttpVersion;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
+use PhpMiniHttpServer\Http\Response\HttpStatusCode;
+use PhpMiniHttpServer\Http\Response\ResponseFactory;
+use PhpMiniHttpServer\Router\MethodNotAllowedException;
+use PhpMiniHttpServer\Router\RouteNotFoundException;
+use PhpMiniHttpServer\Router\Router;
 use PHPUnit\Framework\TestCase;
 
 final class RouterTest extends TestCase

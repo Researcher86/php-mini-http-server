@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\EventLoop;
+namespace PhpMiniHttpServer\Tests\EventLoop;
 
-use App\Connection\Connection;
-use App\EventLoop\SelectLoop;
-use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\ParsedRequest;
+use PhpMiniHttpServer\Connection\Connection;
+use PhpMiniHttpServer\EventLoop\SelectLoop;
+use PhpMiniHttpServer\Http\Protocol\HttpParser;
+use PhpMiniHttpServer\Http\Protocol\ParsedRequest;
 use PHPUnit\Framework\TestCase;
 
 /**

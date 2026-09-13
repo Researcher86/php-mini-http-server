@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Protocol;
+namespace PhpMiniHttpServer\Http\Protocol;
 
-use App\Http\Headers\Headers;
-use App\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Headers\Headers;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
 
 /**
  * Turns raw TCP bytes into an HttpRequest.

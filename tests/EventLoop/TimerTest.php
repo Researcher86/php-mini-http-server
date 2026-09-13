@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\EventLoop;
+namespace PhpMiniHttpServer\Tests\EventLoop;
 
-use App\EventLoop\Timer;
+use PhpMiniHttpServer\EventLoop\Timer;
 use PHPUnit\Framework\TestCase;
 
 final class TimerTest extends TestCase

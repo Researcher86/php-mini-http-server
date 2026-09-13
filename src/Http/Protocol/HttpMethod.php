@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Protocol;
+namespace PhpMiniHttpServer\Http\Protocol;
 
 /**
  * HTTP methods the parser understands.

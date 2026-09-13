@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Response;
+namespace PhpMiniHttpServer\Http\Response;
 
-use App\Http\Headers\Headers;
-use App\Http\Protocol\HttpVersion;
+use PhpMiniHttpServer\Http\Headers\Headers;
+use PhpMiniHttpServer\Http\Protocol\HttpVersion;
 use RuntimeException;
 
 /**

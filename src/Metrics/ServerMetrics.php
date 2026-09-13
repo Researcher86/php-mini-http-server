@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Metrics;
+namespace PhpMiniHttpServer\Metrics;
 
-use App\Support\Clock;
-use App\Support\SystemClock;
+use PhpMiniHttpServer\Support\Clock;
+use PhpMiniHttpServer\Support\SystemClock;
 
 /**
  * A tiny observability counter for the running server.

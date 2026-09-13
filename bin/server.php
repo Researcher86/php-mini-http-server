@@ -2,26 +2,26 @@
 
 declare(strict_types=1);
 
-use App\EventLoop\SelectLoop;
-use App\Http\Handler\HelloHandler;
-use App\Http\Handler\RequestHandler;
-use App\Http\Middleware\ErrorHandlerMiddleware;
-use App\Http\Middleware\LoggingMiddleware;
-use App\Http\Middleware\MiddlewareInterface;
-use App\Http\Middleware\MiddlewarePipeline;
-use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\ResponseEncoder;
-use App\Http\Request\HttpRequest;
-use App\Http\Response\HttpResponse;
-use App\Http\Response\HttpStatusCode;
-use App\Http\Response\ResponseFactory;
-use App\Metrics\ServerMetrics;
-use App\Router\Router;
-use App\Server\ConnectionHandler;
-use App\Server\Server;
-use App\Server\ServerConfig;
-use App\Server\ServerStartException;
-use App\Support\StderrLogger;
+use PhpMiniHttpServer\EventLoop\SelectLoop;
+use PhpMiniHttpServer\Http\Handler\HelloHandler;
+use PhpMiniHttpServer\Http\Handler\RequestHandler;
+use PhpMiniHttpServer\Http\Middleware\ErrorHandlerMiddleware;
+use PhpMiniHttpServer\Http\Middleware\LoggingMiddleware;
+use PhpMiniHttpServer\Http\Middleware\MiddlewareInterface;
+use PhpMiniHttpServer\Http\Middleware\MiddlewarePipeline;
+use PhpMiniHttpServer\Http\Protocol\HttpParser;
+use PhpMiniHttpServer\Http\Protocol\ResponseEncoder;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
+use PhpMiniHttpServer\Http\Response\HttpStatusCode;
+use PhpMiniHttpServer\Http\Response\ResponseFactory;
+use PhpMiniHttpServer\Metrics\ServerMetrics;
+use PhpMiniHttpServer\Router\Router;
+use PhpMiniHttpServer\Server\ConnectionHandler;
+use PhpMiniHttpServer\Server\Server;
+use PhpMiniHttpServer\Server\ServerConfig;
+use PhpMiniHttpServer\Server\ServerStartException;
+use PhpMiniHttpServer\Support\StderrLogger;
 
 require __DIR__ . '/../vendor/autoload.php';
 
@@ -130,7 +130,7 @@ $application->add(new ErrorHandlerMiddleware());
 $application->add(new class implements MiddlewareInterface {
     public function process(HttpRequest $request, RequestHandler $next): HttpResponse
     {
-        // hrtime: a duration, so a monotonic reading (see App\Support\Clock).
+        // hrtime: a duration, so a monotonic reading (see PhpMiniHttpServer\Support\Clock).
         $started = hrtime(true);
         $response = $next->handle($request);
         $response->headers->set('X-Response-Time', sprintf('%.4f', (hrtime(true) - $started) / 1e9));

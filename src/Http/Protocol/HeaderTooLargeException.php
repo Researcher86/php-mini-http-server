@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Protocol;
+namespace PhpMiniHttpServer\Http\Protocol;
 
-use App\Http\Response\HttpStatusCode;
+use PhpMiniHttpServer\Http\Response\HttpStatusCode;
 
 /**
  * The request's header block exceeds the configured limit — answer

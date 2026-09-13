@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Protocol;
+namespace PhpMiniHttpServer\Http\Protocol;
 
-use App\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
 
 /**
  * The outcome of a parse attempt that succeeded.

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Server;
+namespace PhpMiniHttpServer\Server;
 
 /**
  * Immutable server settings.

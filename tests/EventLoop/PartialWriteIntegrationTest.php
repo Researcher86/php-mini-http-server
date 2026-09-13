@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\EventLoop;
+namespace PhpMiniHttpServer\Tests\EventLoop;
 
-use App\Connection\Connection;
-use App\EventLoop\SelectLoop;
+use PhpMiniHttpServer\Connection\Connection;
+use PhpMiniHttpServer\EventLoop\SelectLoop;
 use PHPUnit\Framework\TestCase;
 
 /**

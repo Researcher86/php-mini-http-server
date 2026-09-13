@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Connection;
+namespace PhpMiniHttpServer\Tests\Connection;
 
-use App\Connection\Connection;
-use App\Connection\ConnectionException;
-use App\Connection\ConnectionState;
-use App\Tests\Support\FakeClock;
+use PhpMiniHttpServer\Connection\Connection;
+use PhpMiniHttpServer\Connection\ConnectionException;
+use PhpMiniHttpServer\Connection\ConnectionState;
+use PhpMiniHttpServer\Tests\Support\FakeClock;
 use PHPUnit\Framework\TestCase;
 
 final class ConnectionTest extends TestCase

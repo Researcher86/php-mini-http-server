@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Support;
+namespace PhpMiniHttpServer\Tests\Support;
 
-use App\Support\Clock;
+use PhpMiniHttpServer\Support\Clock;
 
 /**
  * Test double for {@see Clock}: time moves only when the test says so.

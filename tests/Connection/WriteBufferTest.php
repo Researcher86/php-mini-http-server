@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Connection;
+namespace PhpMiniHttpServer\Tests\Connection;
 
-use App\Connection\WriteBuffer;
-use App\Connection\WriteBufferException;
+use PhpMiniHttpServer\Connection\WriteBuffer;
+use PhpMiniHttpServer\Connection\WriteBufferException;
 use PHPUnit\Framework\TestCase;
 
 final class WriteBufferTest extends TestCase

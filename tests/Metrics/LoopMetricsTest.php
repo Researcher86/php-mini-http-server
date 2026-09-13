@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Metrics;
+namespace PhpMiniHttpServer\Tests\Metrics;
 
-use App\EventLoop\SelectLoop;
-use App\Metrics\LoopMetrics;
+use PhpMiniHttpServer\EventLoop\SelectLoop;
+use PhpMiniHttpServer\Metrics\LoopMetrics;
 use PHPUnit\Framework\TestCase;
 
 final class LoopMetricsTest extends TestCase

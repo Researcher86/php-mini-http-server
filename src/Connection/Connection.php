@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Connection;
+namespace PhpMiniHttpServer\Connection;
 
-use App\Support\Clock;
-use App\Support\SystemClock;
+use PhpMiniHttpServer\Support\Clock;
+use PhpMiniHttpServer\Support\SystemClock;
 
 /**
  * An explicit representation of one client TCP connection.

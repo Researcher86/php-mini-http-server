@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Support;
+namespace PhpMiniHttpServer\Support;
 
 /** The real wall clock. */
 final readonly class SystemClock implements Clock

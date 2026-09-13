@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Handler;
+namespace PhpMiniHttpServer\Http\Handler;
 
-use App\Http\Request\HttpRequest;
-use App\Http\Response\HttpResponse;
-use App\Http\Response\ResponseFactory;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
+use PhpMiniHttpServer\Http\Response\ResponseFactory;
 
 /**
  * The smallest possible application handler: a class that owns one route.

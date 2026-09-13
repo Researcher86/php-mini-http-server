@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Request;
+namespace PhpMiniHttpServer\Http\Request;
 
-use App\Http\Headers\Headers;
-use App\Http\Protocol\HttpMethod;
-use App\Http\Protocol\HttpVersion;
+use PhpMiniHttpServer\Http\Headers\Headers;
+use PhpMiniHttpServer\Http\Protocol\HttpMethod;
+use PhpMiniHttpServer\Http\Protocol\HttpVersion;
 
 /**
  * A parsed HTTP request.

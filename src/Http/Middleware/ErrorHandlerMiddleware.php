@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Middleware;
+namespace PhpMiniHttpServer\Http\Middleware;
 
-use App\Http\Handler\RequestHandler;
-use App\Http\Protocol\RequestException;
-use App\Http\Request\HttpRequest;
-use App\Http\Response\HttpResponse;
-use App\Http\Response\HttpStatusCode;
-use App\Http\Response\ResponseFactory;
-use App\Router\MethodNotAllowedException;
-use App\Router\RouteNotFoundException;
+use PhpMiniHttpServer\Http\Handler\RequestHandler;
+use PhpMiniHttpServer\Http\Protocol\RequestException;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
+use PhpMiniHttpServer\Http\Response\HttpStatusCode;
+use PhpMiniHttpServer\Http\Response\ResponseFactory;
+use PhpMiniHttpServer\Router\MethodNotAllowedException;
+use PhpMiniHttpServer\Router\RouteNotFoundException;
 use Throwable;
 
 /**

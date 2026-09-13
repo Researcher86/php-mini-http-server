@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace App\Router;
+namespace PhpMiniHttpServer\Router;
 
-use App\Http\Handler\RequestHandler;
-use App\Http\Protocol\HttpMethod;
-use App\Http\Request\HttpRequest;
-use App\Http\Response\HttpResponse;
 use Closure;
+use PhpMiniHttpServer\Http\Handler\RequestHandler;
+use PhpMiniHttpServer\Http\Protocol\HttpMethod;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
 
 /**
  * Maps an HttpRequest to the handler that answers it.

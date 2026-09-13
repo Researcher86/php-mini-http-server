@@ -2,26 +2,26 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\EventLoop;
+namespace PhpMiniHttpServer\Tests\EventLoop;
 
-use App\Connection\ConnectionState;
-use App\EventLoop\SelectLoop;
-use App\Http\Headers\Headers;
-use App\Http\Middleware\ErrorHandlerMiddleware;
-use App\Http\Middleware\MiddlewarePipeline;
-use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\HttpVersion;
-use App\Http\Protocol\ResponseEncoder;
-use App\Http\Request\HttpRequest;
-use App\Http\Response\HttpResponse;
-use App\Http\Response\HttpStatusCode;
-use App\Http\Response\ResponseFactory;
-use App\Metrics\ServerMetrics;
-use App\Router\Router;
-use App\Server\ConnectionHandler;
-use App\Server\Server;
-use App\Server\ServerConfig;
-use App\Support\NullLogger;
+use PhpMiniHttpServer\Connection\ConnectionState;
+use PhpMiniHttpServer\EventLoop\SelectLoop;
+use PhpMiniHttpServer\Http\Headers\Headers;
+use PhpMiniHttpServer\Http\Middleware\ErrorHandlerMiddleware;
+use PhpMiniHttpServer\Http\Middleware\MiddlewarePipeline;
+use PhpMiniHttpServer\Http\Protocol\HttpParser;
+use PhpMiniHttpServer\Http\Protocol\HttpVersion;
+use PhpMiniHttpServer\Http\Protocol\ResponseEncoder;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
+use PhpMiniHttpServer\Http\Response\HttpStatusCode;
+use PhpMiniHttpServer\Http\Response\ResponseFactory;
+use PhpMiniHttpServer\Metrics\ServerMetrics;
+use PhpMiniHttpServer\Router\Router;
+use PhpMiniHttpServer\Server\ConnectionHandler;
+use PhpMiniHttpServer\Server\Server;
+use PhpMiniHttpServer\Server\ServerConfig;
+use PhpMiniHttpServer\Support\NullLogger;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 

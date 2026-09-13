@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Support;
+namespace PhpMiniHttpServer\Support;
 
 /**
  * Minimal logging seam for events that are useful to observe but must never

@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\Server;
+namespace PhpMiniHttpServer\Server;
 
-use App\Connection\Connection;
-use App\Support\Clock;
-use App\Support\SystemClock;
+use PhpMiniHttpServer\Connection\Connection;
+use PhpMiniHttpServer\Support\Clock;
+use PhpMiniHttpServer\Support\SystemClock;
 
 /**
  * A minimal TCP server owning a single listening socket.

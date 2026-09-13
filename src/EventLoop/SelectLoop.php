@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\EventLoop;
+namespace PhpMiniHttpServer\EventLoop;
 
-use App\Metrics\LoopMetrics;
 use Closure;
+use PhpMiniHttpServer\Metrics\LoopMetrics;
 use TypeError;
 use ValueError;
 

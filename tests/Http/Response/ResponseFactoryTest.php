@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Http\Response;
+namespace PhpMiniHttpServer\Tests\Http\Response;
 
-use App\Http\Protocol\HttpVersion;
-use App\Http\Response\HttpStatusCode;
-use App\Http\Response\ResponseFactory;
+use PhpMiniHttpServer\Http\Protocol\HttpVersion;
+use PhpMiniHttpServer\Http\Response\HttpStatusCode;
+use PhpMiniHttpServer\Http\Response\ResponseFactory;
 use PHPUnit\Framework\TestCase;
 
 final class ResponseFactoryTest extends TestCase

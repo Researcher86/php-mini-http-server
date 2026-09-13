@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Http\Protocol;
+namespace PhpMiniHttpServer\Tests\Http\Protocol;
 
-use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\RequestException;
+use PhpMiniHttpServer\Http\Protocol\HttpParser;
+use PhpMiniHttpServer\Http\Protocol\RequestException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 

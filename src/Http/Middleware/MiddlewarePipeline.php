@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Middleware;
+namespace PhpMiniHttpServer\Http\Middleware;
 
-use App\Http\Handler\RequestHandler;
-use App\Http\Request\HttpRequest;
-use App\Http\Response\HttpResponse;
+use PhpMiniHttpServer\Http\Handler\RequestHandler;
+use PhpMiniHttpServer\Http\Request\HttpRequest;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
 
 /**
  * Composes middleware into a single RequestHandler.

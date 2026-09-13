@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Metrics;
+namespace PhpMiniHttpServer\Metrics;
 
 /**
  * Observability for the event loop itself.

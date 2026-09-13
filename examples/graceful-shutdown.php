@@ -22,19 +22,19 @@ declare(strict_types=1);
 
 require __DIR__ . '/bootstrap.php';
 
-use App\EventLoop\SelectLoop;
-use App\Http\Middleware\ErrorHandlerMiddleware;
-use App\Http\Middleware\MiddlewarePipeline;
-use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\ResponseEncoder;
-use App\Http\Response\HttpResponse;
-use App\Http\Response\ResponseFactory;
-use App\Metrics\ServerMetrics;
-use App\Router\Router;
-use App\Server\ConnectionHandler;
-use App\Server\Server;
-use App\Server\ServerConfig;
-use App\Support\StderrLogger;
+use PhpMiniHttpServer\EventLoop\SelectLoop;
+use PhpMiniHttpServer\Http\Middleware\ErrorHandlerMiddleware;
+use PhpMiniHttpServer\Http\Middleware\MiddlewarePipeline;
+use PhpMiniHttpServer\Http\Protocol\HttpParser;
+use PhpMiniHttpServer\Http\Protocol\ResponseEncoder;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
+use PhpMiniHttpServer\Http\Response\ResponseFactory;
+use PhpMiniHttpServer\Metrics\ServerMetrics;
+use PhpMiniHttpServer\Router\Router;
+use PhpMiniHttpServer\Server\ConnectionHandler;
+use PhpMiniHttpServer\Server\Server;
+use PhpMiniHttpServer\Server\ServerConfig;
+use PhpMiniHttpServer\Support\StderrLogger;
 
 $portFile = sys_get_temp_dir() . '/php-mini-http-server-shutdown-' . getmypid() . '.port';
 $serverPid = pcntl_fork();

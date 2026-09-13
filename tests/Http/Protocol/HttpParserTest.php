@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Http\Protocol;
+namespace PhpMiniHttpServer\Tests\Http\Protocol;
 
-use App\Http\Protocol\BodyTooLargeException;
-use App\Http\Protocol\HeaderTooLargeException;
-use App\Http\Protocol\HttpMethod;
-use App\Http\Protocol\HttpParser;
-use App\Http\Protocol\HttpVersion;
-use App\Http\Protocol\MalformedRequestException;
-use App\Http\Protocol\UnsupportedTransferEncodingException;
+use PhpMiniHttpServer\Http\Protocol\BodyTooLargeException;
+use PhpMiniHttpServer\Http\Protocol\HeaderTooLargeException;
+use PhpMiniHttpServer\Http\Protocol\HttpMethod;
+use PhpMiniHttpServer\Http\Protocol\HttpParser;
+use PhpMiniHttpServer\Http\Protocol\HttpVersion;
+use PhpMiniHttpServer\Http\Protocol\MalformedRequestException;
+use PhpMiniHttpServer\Http\Protocol\UnsupportedTransferEncodingException;
 use PHPUnit\Framework\TestCase;
 
 final class HttpParserTest extends TestCase

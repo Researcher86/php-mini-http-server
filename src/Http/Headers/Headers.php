@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Headers;
+namespace PhpMiniHttpServer\Http\Headers;
 
-use App\Http\Protocol\MalformedRequestException;
+use PhpMiniHttpServer\Http\Protocol\MalformedRequestException;
 
 /**
  * An HTTP header collection shared by requests and responses.

@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Http\Protocol;
+namespace PhpMiniHttpServer\Tests\Http\Protocol;
 
-use App\Http\Headers\Headers;
-use App\Http\Protocol\HttpVersion;
-use App\Http\Protocol\ResponseEncoder;
-use App\Http\Response\HttpResponse;
-use App\Http\Response\HttpStatusCode;
-use App\Http\Response\ResponseFactory;
+use PhpMiniHttpServer\Http\Headers\Headers;
+use PhpMiniHttpServer\Http\Protocol\HttpVersion;
+use PhpMiniHttpServer\Http\Protocol\ResponseEncoder;
+use PhpMiniHttpServer\Http\Response\HttpResponse;
+use PhpMiniHttpServer\Http\Response\HttpStatusCode;
+use PhpMiniHttpServer\Http\Response\ResponseFactory;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 

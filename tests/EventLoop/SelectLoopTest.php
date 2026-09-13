@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\EventLoop;
+namespace PhpMiniHttpServer\Tests\EventLoop;
 
-use App\EventLoop\SelectLoop;
+use PhpMiniHttpServer\EventLoop\SelectLoop;
 use PHPUnit\Framework\TestCase;
 
 final class SelectLoopTest extends TestCase

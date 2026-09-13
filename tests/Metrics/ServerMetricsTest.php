@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Metrics;
+namespace PhpMiniHttpServer\Tests\Metrics;
 
-use App\Metrics\ServerMetrics;
-use App\Tests\Support\FakeClock;
+use PhpMiniHttpServer\Metrics\ServerMetrics;
+use PhpMiniHttpServer\Tests\Support\FakeClock;
 use PHPUnit\Framework\TestCase;
 
 final class ServerMetricsTest extends TestCase

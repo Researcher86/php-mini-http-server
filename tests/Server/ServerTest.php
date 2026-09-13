@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Server;
+namespace PhpMiniHttpServer\Tests\Server;
 
-use App\Server\Server;
-use App\Server\ServerConfig;
-use App\Server\ServerStartException;
-use App\Server\ServerState;
-use App\Tests\Support\FakeClock;
+use PhpMiniHttpServer\Server\Server;
+use PhpMiniHttpServer\Server\ServerConfig;
+use PhpMiniHttpServer\Server\ServerStartException;
+use PhpMiniHttpServer\Server\ServerState;
+use PhpMiniHttpServer\Tests\Support\FakeClock;
 use PHPUnit\Framework\TestCase;
 
 final class ServerTest extends TestCase

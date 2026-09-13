@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Support;
+namespace PhpMiniHttpServer\Support;
 
 /**
  * "What time is it", behind an interface.

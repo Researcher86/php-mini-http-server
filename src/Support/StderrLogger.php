@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Support;
+namespace PhpMiniHttpServer\Support;
 
 /**
  * Timestamped lines to STDERR - kept apart from STDOUT, so server logs and
