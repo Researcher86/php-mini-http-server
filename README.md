@@ -1187,7 +1187,23 @@ they add up to are **[docs/FAILURE-MODEL.md](docs/FAILURE-MODEL.md)**.
 
 # Related Projects
 
-This project is part of a collection of educational PHP backend and systems programming projects.
+This project is part of [**php-systems-lab**](https://github.com/Researcher86/php-systems-lab),
+a collection of educational PHP backend and systems programming projects.
+
+## [PHP Memory Lab](https://github.com/Researcher86/php-memory-lab)
+
+Memory and operating-system fundamentals, measured rather than asserted.
+
+It explores:
+
+* `memory_get_usage()` against RSS and PSS;
+* array, string and object costs;
+* `fork()` and Copy-on-Write;
+* shared memory, `mmap`, FFI - memory the PHP counters cannot see.
+
+Directly relevant here: a keep-alive server holds a read buffer and a write
+buffer per connection, and `php-memory-lab` is where the cost of holding them
+is measured. Backpressure is a memory decision before it is a protocol one.
 
 ## [PHP Concurrency](https://github.com/Researcher86/php-concurrency)
 
