@@ -23,7 +23,7 @@ use PhpMiniHttpServer\Server\ServerConfig;
 use PhpMiniHttpServer\Server\ServerStartException;
 use PhpMiniHttpServer\Support\StderrLogger;
 
-require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/bootstrap.php';
 
 /**
  * Phases 5-16: raw TCP bytes become HttpRequest objects, the router picks

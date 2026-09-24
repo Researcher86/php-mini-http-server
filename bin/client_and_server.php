@@ -18,7 +18,7 @@ use PhpMiniHttpServer\Server\ServerConfig;
 use PhpMiniHttpServer\Server\ServerStartException;
 use PhpMiniHttpServer\Support\StderrLogger;
 
-require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/bootstrap.php';
 
 /**
  * One run, both ends: a forked server on an OS-assigned port answers a few
