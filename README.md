@@ -1,5 +1,7 @@
 # PHP Mini HTTP Server
 
+**[🧪 PHP Systems Lab](https://github.com/Researcher86/php-systems-lab)** · Level 6 of 8 · ← [`php-mini-cache`](https://github.com/Researcher86/php-mini-cache) · [`php-mini-database`](https://github.com/Researcher86/php-mini-database) →
+
 > An educational event-driven HTTP server written in PHP.
 
 `php-mini-http-server` is a small educational project for exploring how an HTTP server works internally.
@@ -1185,130 +1187,53 @@ they add up to are **[docs/FAILURE-MODEL.md](docs/FAILURE-MODEL.md)**.
 
 ---
 
-# Related Projects
+# PHP Systems Lab
 
-This project is part of [**php-systems-lab**](https://github.com/Researcher86/php-systems-lab),
-a collection of educational PHP backend and systems programming projects.
+This project is part of [**PHP Systems Lab**](https://github.com/Researcher86/php-systems-lab) — a collection of small
+educational PHP projects that rebuild the mechanisms behind backend
+infrastructure in order to understand them. The recommended order:
 
-## [PHP Memory Lab](https://github.com/Researcher86/php-memory-lab)
+| Level | Project | Focus |
+| ----- | ------- | ----- |
+| 1 | 🧠 [`php-memory-lab`](https://github.com/Researcher86/php-memory-lab) | memory, RSS, fork, copy-on-write, `mmap`, shared memory, FFI |
+| 2 | ⚡ [`php-concurrency`](https://github.com/Researcher86/php-concurrency) | processes, IPC, concurrency patterns, event loops, Fibers (course in Russian) |
+| 3 | ⚙️ [`php-worker-pool`](https://github.com/Researcher86/php-worker-pool) | persistent master/worker pool, supervision, graceful shutdown |
+| 4 | 📬 [`php-job-queue`](https://github.com/Researcher86/php-job-queue) | reliable background jobs: delivery leases, ACK, retries, DLQ |
+| 5 | 💾 [`php-mini-cache`](https://github.com/Researcher86/php-mini-cache) | event-driven in-memory server: RESP, pipelining, TTL, Pub/Sub |
+| **6** | 🌐 **`php-mini-http-server`** (this project) | **event-driven HTTP server: parsing, routing, middleware, keep-alive** |
+| 7 | 🗄️ [`php-mini-database`](https://github.com/Researcher86/php-mini-database) | relational engine: pages, B-trees, SQL, transactions, WAL, recovery |
+| 8 | 🏗️ [`php-systems-platform`](https://github.com/Researcher86/php-systems-platform) | integration of the components into one backend platform |
 
-Memory and operating-system fundamentals, measured rather than asserted.
+These are teaching projects, not libraries: a mechanism travels between them
+by being read in one and reimplemented in the next. Levels 1–7 do not depend
+on each other as packages. Only [`php-systems-platform`](https://github.com/Researcher86/php-systems-platform) requires the
+five components (worker pool, job queue, cache, HTTP server, database)
+through Composer and runs them together as one system.
 
-It explores:
+## How this project relates
 
-* `memory_get_usage()` against RSS and PSS;
-* array, string and object costs;
-* `fork()` and Copy-on-Write;
-* shared memory, `mmap`, FFI - memory the PHP counters cannot see.
+**[`php-memory-lab`](https://github.com/Researcher86/php-memory-lab)** — a keep-alive server holds a read buffer and a
+write buffer per connection, and `php-memory-lab` is where the cost of
+holding them is measured. Backpressure is a memory decision before it is a
+protocol one.
 
-Directly relevant here: a keep-alive server holds a read buffer and a write
-buffer per connection, and `php-memory-lab` is where the cost of holding them
-is measured. Backpressure is a memory decision before it is a protocol one.
-
-## [PHP Concurrency](https://github.com/Researcher86/php-concurrency)
-
-A practical collection of experiments exploring:
-
-* processes;
-* `pcntl_fork`;
-* IPC;
-* concurrency patterns;
-* event loops;
-* Fibers;
-* asynchronous I/O.
-
-It provides the fundamental building blocks for the rest of the projects.
-
-## [PHP Worker Pool](https://github.com/Researcher86/php-worker-pool)
-
-An educational implementation of a reusable Worker Pool.
-
-It explores:
-
-* Worker processes;
-* Worker lifecycle;
-* IPC;
-* task execution;
-* Worker recycling;
-* `DRAINING`;
-* graceful shutdown.
-
-## PHP Job Queue
-
-An educational background job processing system.
-
-It explores:
-
-* Jobs;
-* queues;
-* reservation;
-* ACK;
-* retries;
-* backoff;
-* visibility timeouts;
-* failed jobs.
-
-Repository:
+**[`php-mini-cache`](https://github.com/Researcher86/php-mini-cache)** — the previous level, and the same event-loop
+foundation. This project reuses its ideas (not its code) and adds the HTTP
+layer on top:
 
 ```text
-https://github.com/Researcher86/php-job-queue
+php-mini-cache         TCP server → event loop → client connections → non-blocking I/O
+                                                   │
+php-mini-http-server                               └→ HTTP protocol → routing → middleware → handlers
 ```
 
-## [PHP Mini Cache](https://github.com/Researcher86/php-mini-cache)
+**[`php-worker-pool`](https://github.com/Researcher86/php-worker-pool)** — the multi-process alternative to one event
+loop: where this server interleaves many connections in one process, the pool
+spreads requests across persistent workers.
 
-An educational event-driven in-memory database server.
-
-It explores:
-
-* TCP servers;
-* event loops;
-* client connections;
-* non-blocking I/O;
-* protocol parsing;
-* TTL;
-* Pub/Sub.
-
-`php-mini-http-server` builds directly on many of these concepts.
-
-```text
-php-mini-cache
-        ↓
-TCP Server
-        ↓
-Event Loop
-        ↓
-Client Connections
-        ↓
-Non-Blocking I/O
-        ↓
-php-mini-http-server
-        ↓
-HTTP Protocol
-        ↓
-Routing
-        ↓
-Middleware
-        ↓
-Request Handling
-```
-
----
-
-# The Ecosystem
-
-```text
-                    php-concurrency
-                           │
-          ┌────────────────┼────────────────┐
-          │                │                │
-          ▼                ▼                ▼
-   php-worker-pool   php-mini-cache     Experiments
-          │                │
-          ▼                ▼
-   php-job-queue   php-mini-http-server
-```
-
-Each project explores a different layer of backend and systems programming.
+**[`php-systems-platform`](https://github.com/Researcher86/php-systems-platform)** — uses this server as its HTTP front door
+(`src/Application/`, on top of `Server`, `SelectLoop`, `HttpParser` and
+`ConnectionHandler`).
 
 ---
 
@@ -1461,4 +1386,4 @@ The project should remain:
 
 ## License
 
-MIT
+MIT.

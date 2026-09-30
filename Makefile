@@ -1,4 +1,4 @@
-.PHONY: up down shell build install test analyse lint fix bench example \
+.PHONY: up down shell build install test analyse format format-check bench example \
         run-server run-server-debug run-client run-client-debug run-example
 
 up:
@@ -25,12 +25,6 @@ test: up
 analyse: up
 	docker compose exec php composer analyse
 
-# check reports without touching anything (what CI runs); fix rewrites.
-lint: up
-	docker compose exec php composer lint
-
-fix: up
-	docker compose exec php composer fix
 
 run-server: up
 	docker compose exec php php bin/server.php
@@ -62,3 +56,10 @@ run-client-debug: up
 
 bench: up
 	docker compose exec php php bin/bench.php $(ARGS)
+
+format: up
+	docker compose exec php composer format
+
+# check reports without touching anything (what CI runs)
+format-check: up
+	docker compose exec php composer format:check
