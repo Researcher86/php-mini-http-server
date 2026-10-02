@@ -31,13 +31,7 @@ final readonly class HttpRequest
      */
     public function path(): string
     {
-        $question = strpos($this->target, '?');
-
-        if ($question === false) {
-            return $this->target;
-        }
-
-        return substr($this->target, 0, $question);
+        return explode('?', $this->target, 2)[0];
     }
 
     /**
@@ -45,14 +39,7 @@ final readonly class HttpRequest
      */
     public function query(): array
     {
-        $question = strpos($this->target, '?');
-
-        if ($question === false) {
-            return [];
-        }
-
-        $query = [];
-        parse_str(substr($this->target, $question + 1), $query);
+        parse_str(explode('?', $this->target, 2)[1] ?? '', $query);
 
         return $query;
     }

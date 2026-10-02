@@ -34,41 +34,25 @@ final readonly class HttpParser
     {
         $headerEnd = strpos($raw, self::HEADER_TERMINATOR);
 
-        if ($headerEnd === false) {
-            // No terminator yet. Refuse to buffer an unbounded header block:
-            // this is the read-side memory guard against header floods.
-            if (strlen($raw) > $this->maxHeaderBytes) {
-                throw new HeaderTooLargeException(sprintf(
-                    'Header block exceeds %d bytes.',
-                    $this->maxHeaderBytes,
-                ));
-            }
+        // Refuse to buffer an unbounded header block, whether or not its
+        // terminator has arrived yet: this is the read-side memory guard
+        // against header floods.
+        if (($headerEnd === false ? strlen($raw) : $headerEnd) > $this->maxHeaderBytes) {
+            throw new HeaderTooLargeException(sprintf('Header block exceeds %d bytes.', $this->maxHeaderBytes));
+        }
 
+        if ($headerEnd === false) {
             return null;
         }
 
-        if ($headerEnd > $this->maxHeaderBytes) {
-            throw new HeaderTooLargeException(sprintf(
-                'Header block exceeds %d bytes.',
-                $this->maxHeaderBytes,
-            ));
-        }
-
         $headEnd = $headerEnd + strlen(self::HEADER_TERMINATOR);
-        $head = substr($raw, 0, $headerEnd);
-
-        $firstLineEnd = strpos($head, "\r\n");
-        $requestLine = $firstLineEnd === false ? $head : substr($head, 0, $firstLineEnd);
-
-        [$method, $target, $version] = $this->parseRequestLine($requestLine);
 
         // A head with no CRLF carries no header lines at all, so the first
         // line is also the last. Otherwise the rest of the head is headers.
-        if ($firstLineEnd === false) {
-            $headers = new Headers();
-        } else {
-            $headers = Headers::fromLines(substr($head, $firstLineEnd + 2));
-        }
+        [$requestLine, $headerLines] = explode("\r\n", substr($raw, 0, $headerEnd), 2) + [1 => ''];
+
+        [$method, $target, $version] = $this->parseRequestLine($requestLine);
+        $headers = Headers::fromLines($headerLines);
 
         $this->assertHostIsUsable($headers, $version);
         $this->assertDecodableBody($headers);
@@ -89,15 +73,7 @@ final readonly class HttpParser
             return null;
         }
 
-        $body = substr($raw, $headEnd, $contentLength);
-
-        $request = new HttpRequest(
-            method: $method,
-            target: $target,
-            version: $version,
-            headers: $headers,
-            body: $body,
-        );
+        $request = new HttpRequest($method, $target, $version, $headers, substr($raw, $headEnd, $contentLength));
 
         return new ParsedRequest($request, $headEnd + $contentLength);
     }
@@ -165,13 +141,10 @@ final readonly class HttpParser
             return;
         }
 
-        foreach (explode(',', $encoding) as $coding) {
-            if (strtolower(trim($coding)) !== 'identity') {
-                throw new UnsupportedTransferEncodingException(sprintf(
-                    'Unsupported Transfer-Encoding: %s',
-                    $encoding,
-                ));
-            }
+        $isIdentity = static fn (string $coding): bool => strtolower(trim($coding)) === 'identity';
+
+        if (!array_all(explode(',', $encoding), $isIdentity)) {
+            throw new UnsupportedTransferEncodingException(sprintf('Unsupported Transfer-Encoding: %s', $encoding));
         }
     }
 
@@ -187,19 +160,10 @@ final readonly class HttpParser
         // only break framing when the values disagree (RFC 7230), so several
         // identical lines are accepted; a single invalid value is the same
         // unrecoverable framing error as two conflicting ones.
-        $parts = [];
+        $parts = array_map(trim(...), explode(',', $value));
 
-        foreach (explode(',', $value) as $part) {
-            $parts[] = trim($part);
-        }
-
-        foreach ($parts as $part) {
-            if (!ctype_digit($part)) {
-                throw new MalformedRequestException(sprintf(
-                    'Malformed Content-Length header: %s',
-                    $value,
-                ));
-            }
+        if (!array_all($parts, static fn (string $part): bool => ctype_digit($part))) {
+            throw new MalformedRequestException(sprintf('Malformed Content-Length header: %s', $value));
         }
 
         if (count(array_unique($parts)) !== 1) {
