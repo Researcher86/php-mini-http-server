@@ -62,9 +62,7 @@ final class MiddlewarePipeline implements RequestHandler
 
         foreach (array_reverse($this->middleware) as $middleware) {
             $next = new DelegateRequestHandler(
-                static function (HttpRequest $inner) use ($middleware, $next): HttpResponse {
-                    return $middleware->process($inner, $next);
-                },
+                static fn (HttpRequest $inner): HttpResponse => $middleware->process($inner, $next),
             );
         }
 

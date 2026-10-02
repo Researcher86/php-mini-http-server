@@ -251,12 +251,12 @@ final readonly class ConnectionHandler
     {
         $response->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
 
-        $this->connection->queueWrite($this->encodeOrFail($response, $keepAlive));
+        $this->connection->queueWrite($this->encodeOrFail($response));
     }
 
     /**
-     * Encode a response, falling back to a bare 500 when it cannot be put on
-     * the wire at all.
+     * Encode a response, falling back to a bare 500 — same Connection
+     * header — when it cannot be put on the wire at all.
      *
      * The pipeline's error handler catches whatever a handler throws, but it
      * cannot catch this: encoding happens here, after the pipeline has already
@@ -265,7 +265,7 @@ final readonly class ConnectionHandler
      * early and let the rest be read as a second, attacker-chosen response —
      * and that refusal must cost the request, not the server.
      */
-    private function encodeOrFail(HttpResponse $response, bool $keepAlive): string
+    private function encodeOrFail(HttpResponse $response): string
     {
         try {
             return $this->encoder->encode($response);
@@ -276,11 +276,8 @@ final readonly class ConnectionHandler
                 $e->getMessage(),
             ));
 
-            $fallback = ResponseFactory::text(
-                'Internal Server Error' . PHP_EOL,
-                HttpStatusCode::INTERNAL_SERVER_ERROR,
-            );
-            $fallback->headers->set('Connection', $keepAlive ? 'keep-alive' : 'close');
+            $fallback = ResponseFactory::text('Internal Server Error' . PHP_EOL, HttpStatusCode::INTERNAL_SERVER_ERROR);
+            $fallback->headers->set('Connection', (string) $response->header('Connection'));
 
             return $this->encoder->encode($fallback);
         }

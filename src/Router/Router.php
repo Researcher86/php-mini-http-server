@@ -73,20 +73,13 @@ final class Router implements RequestHandler
      */
     public function dispatch(HttpRequest $request): HttpResponse
     {
-        $method = $request->method->value;
-
         // HEAD is GET without a response body: it answers from the GET
         // routes, and the layer that builds the wire bytes omits the body.
-        if ($request->method === HttpMethod::HEAD) {
-            $method = HttpMethod::GET->value;
-        }
-
+        $method = ($request->method === HttpMethod::HEAD ? HttpMethod::GET : $request->method)->value;
         $path = $request->path();
 
-        $handler = $this->exact[$method][$path] ?? null;
-
-        if ($handler !== null) {
-            return $handler($request, []);
+        if (isset($this->exact[$method][$path])) {
+            return $this->exact[$method][$path]($request, []);
         }
 
         $matched = $this->matchPattern($method, $path);
@@ -114,17 +107,7 @@ final class Router implements RequestHandler
 
     public function count(): int
     {
-        $total = 0;
-
-        foreach ($this->exact as $byMethod) {
-            $total += count($byMethod);
-        }
-
-        foreach ($this->patterns as $byMethod) {
-            $total += count($byMethod);
-        }
-
-        return $total;
+        return array_sum(array_map(count(...), $this->exact)) + array_sum(array_map(count(...), $this->patterns));
     }
 
     /**
@@ -154,17 +137,9 @@ final class Router implements RequestHandler
     private function matchPattern(string $method, string $path): ?array
     {
         foreach ($this->patterns[$method] ?? [] as $route) {
-            $matches = [];
-            preg_match($route->regex, $path, $matches);
-
-            if ($matches === []) {
-                continue;
+            if (preg_match($route->regex, $path, $matches) === 1) {
+                return [$route, array_filter($matches, is_string(...), ARRAY_FILTER_USE_KEY)];
             }
-
-            return [
-                $route,
-                array_filter($matches, 'is_string', ARRAY_FILTER_USE_KEY),
-            ];
         }
 
         return null;
