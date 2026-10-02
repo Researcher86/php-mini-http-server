@@ -48,6 +48,9 @@ return (new PhpCsFixer\Config())
             'import_functions' => false,
         ],
         'ordered_imports' => ['sort_algorithm' => 'alpha'],
+        // An import nothing uses is a dependency the file only pretends to
+        // have.
+        'no_unused_imports' => true,
         // PER-CS wants `fn(`; this codebase and its sibling projects write
         // `fn (`, so the existing spelling wins over the preset.
         'function_declaration' => ['closure_fn_spacing' => 'one'],

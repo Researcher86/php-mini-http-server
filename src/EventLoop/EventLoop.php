@@ -24,7 +24,8 @@ use Closure;
  *     Write Events   some stream can accept more bytes
  *     Timers         wall-clock work not tied to any stream
  *
- * @param resource $stream
+ * Every $stream below is a stream resource; it is typed mixed because PHP
+ * has no native resource type.
  */
 interface EventLoop
 {
