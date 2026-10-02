@@ -22,10 +22,9 @@ enum HttpVersion: string
      */
     public static function fromWire(string $raw): self
     {
-        $prefix = 'HTTP/';
-        $version = str_starts_with($raw, $prefix) ? substr($raw, strlen($prefix)) : $raw;
-
-        $parsed = self::tryFrom($version);
+        // The protocol name is part of the token: a bare "1.1" is not a
+        // version, it is a request line from something that is not HTTP.
+        $parsed = str_starts_with($raw, 'HTTP/') ? self::tryFrom(substr($raw, 5)) : null;
 
         if ($parsed === null) {
             throw new MalformedRequestException(sprintf('Unsupported HTTP version: %s', $raw));

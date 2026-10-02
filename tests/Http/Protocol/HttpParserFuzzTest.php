@@ -89,6 +89,7 @@ final class HttpParserFuzzTest extends TestCase
         yield 'wrong protocol name' => ["GET / FTP/1.1\r\nHost: t\r\n\r\n"];
         yield 'version below 1.0' => ["GET / HTTP/0.9\r\nHost: t\r\n\r\n"];
         yield 'version above 1.1' => ["GET / HTTP/2.0\r\nHost: t\r\n\r\n"];
+        yield 'version without the HTTP/ name' => ["GET / 1.1\r\nHost: t\r\n\r\n"];
         yield 'version that does not exist' => ["GET / HTTP/1.2\r\nHost: t\r\n\r\n"];
 
         // ── header grammar ──────────────────────────────────────────────
