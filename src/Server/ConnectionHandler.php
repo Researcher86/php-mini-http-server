@@ -93,14 +93,13 @@ final readonly class ConnectionHandler
 
     private function serviceRequests(mixed $stream): void
     {
-        $closeAfterDrain = false;
         $queued = false;
-        $paused = false;
 
         // Phase 15: one read may carry several pipelined requests. Keep
         // parsing while the buffer holds complete requests, queueing their
         // responses in order; stop only when a request says "close", there
         // is nothing complete left, or the write buffer hits the ceiling.
+        // Each early return says what happens to the connection next.
         while (true) {
             try {
                 $parsed = $this->parser->parse((string) $this->connection->readBuffer());
@@ -109,9 +108,9 @@ final readonly class ConnectionHandler
                 // every byte after it is suspect. Answer with the status the
                 // exception carries, then close.
                 $this->queueError($e);
-                $closeAfterDrain = true;
-                $queued = true;
-                break;
+                $this->closeAfterFlush($stream);
+
+                return;
             }
 
             if ($parsed === null) {
@@ -126,10 +125,6 @@ final readonly class ConnectionHandler
             $this->connection->readBuffer()->consume($parsed->consumedBytes);
             $this->connection->startProcessing();
 
-            // Every parsed request gets an answer, one way or another, so
-            // from here on there is something to flush.
-            $queued = true;
-
             // Phase 19 graceful shutdown: once the server is DRAINING no NEW
             // request may start. In-flight work is finished and flushed
             // above (the loop reaches this point only between requests);
@@ -142,40 +137,32 @@ final readonly class ConnectionHandler
                     ResponseFactory::text('Service Unavailable' . PHP_EOL, HttpStatusCode::SERVICE_UNAVAILABLE),
                     keepAlive: false,
                 );
-                $closeAfterDrain = true;
-                break;
+                $this->closeAfterFlush($stream);
+
+                return;
             }
 
             if (!$this->serve($parsed->request)) {
-                $closeAfterDrain = true;
-                break;
+                $this->closeAfterFlush($stream);
+
+                return;
             }
 
             // Phase 18 backpressure: past the ceiling we stop pulling more
             // requests off the socket until the buffer drains, then resume.
             if ($this->connection->hasBufferedMoreThan($this->maxBufferedResponseBytes)) {
-                $paused = true;
-                break;
+                $this->pauseReadsUntilDrained($stream);
+
+                return;
             }
+
+            $queued = true;
         }
 
-        if (!$queued) {
-            return; // nothing complete yet — wait for more bytes
-        }
-
-        $this->connection->startWriting();
-
-        if ($paused) {
-            $this->pauseReadsUntilDrained($stream);
-
-            return;
-        }
-
-        // Phase 14+15: once the queued responses are fully written the
-        // connection either goes back to READING (keep-alive) or closes.
-        if ($closeAfterDrain) {
-            $this->closeAfterFlush($stream);
-        } else {
+        // Phase 14+15: once the queued responses are fully written a
+        // keep-alive connection goes back to READING.
+        if ($queued) {
+            $this->connection->startWriting();
             $this->drain($this->connection->backToReading(...));
         }
     }
@@ -187,6 +174,7 @@ final readonly class ConnectionHandler
      */
     private function closeAfterFlush(mixed $stream): void
     {
+        $this->connection->startWriting();
         $this->loop->removeReadable($stream);
         $this->drain($this->close(...));
     }
@@ -307,6 +295,7 @@ final readonly class ConnectionHandler
             $this->connection->writeBufferLength(),
         ));
 
+        $this->connection->startWriting();
         $this->loop->removeReadable($stream);
 
         $this->drain(function () use ($stream): void {
