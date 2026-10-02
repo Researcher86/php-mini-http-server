@@ -5,16 +5,12 @@ declare(strict_types=1);
 use PhpMiniHttpServer\EventLoop\SelectLoop;
 use PhpMiniHttpServer\Http\Middleware\ErrorHandlerMiddleware;
 use PhpMiniHttpServer\Http\Middleware\MiddlewarePipeline;
-use PhpMiniHttpServer\Http\Protocol\HttpParser;
-use PhpMiniHttpServer\Http\Protocol\ResponseEncoder;
 use PhpMiniHttpServer\Http\Response\HttpResponse;
 use PhpMiniHttpServer\Http\Response\ResponseFactory;
-use PhpMiniHttpServer\Metrics\ServerMetrics;
 use PhpMiniHttpServer\Router\Router;
 use PhpMiniHttpServer\Server\ConnectionHandler;
 use PhpMiniHttpServer\Server\Server;
 use PhpMiniHttpServer\Server\ServerConfig;
-use PhpMiniHttpServer\Support\NullLogger;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -89,31 +85,11 @@ function benchRunServer(mixed $childPipe): never
     $application->add(new ErrorHandlerMiddleware());
 
     $loop = new SelectLoop();
-    $parser = new HttpParser();
-    $encoder = new ResponseEncoder();
-    $metrics = new ServerMetrics();
 
     pcntl_async_signals(true);
     pcntl_signal(SIGTERM, static fn () => $loop->stop());
 
-    $loop->onReadable($server->socket(), static function () use ($loop, $server, $parser, $encoder, $application, $metrics): void {
-        $connection = $server->accept();
-
-        if ($connection === null) {
-            return;
-        }
-
-        (new ConnectionHandler(
-            loop: $loop,
-            server: $server,
-            connection: $connection,
-            parser: $parser,
-            application: $application,
-            encoder: $encoder,
-            metrics: $metrics,
-            logger: new NullLogger(),
-        ))->start();
-    });
+    ConnectionHandler::acceptOn($loop, $server, $application);
 
     fwrite($childPipe, $server->getPort() . "\n");
     fclose($childPipe);

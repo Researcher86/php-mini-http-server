@@ -367,25 +367,7 @@ final class ConnectionHandlerTest extends TestCase
         $server = $this->server;
         $metrics = new ServerMetrics();
 
-        $loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $application, $encoder, $metrics, $maxBufferedResponseBytes): void {
-            $connection = $server->accept();
-
-            if ($connection === null) {
-                return;
-            }
-
-            (new ConnectionHandler(
-                loop: $loop,
-                server: $server,
-                connection: $connection,
-                parser: $parser,
-                application: $application,
-                encoder: $encoder,
-                metrics: $metrics,
-                logger: new NullLogger(),
-                maxBufferedResponseBytes: $maxBufferedResponseBytes,
-            ))->start();
-        });
+        ConnectionHandler::acceptOn($loop, $this->server, $application, $metrics, new NullLogger(), $parser, $encoder, $maxBufferedResponseBytes);
 
         return $metrics;
     }

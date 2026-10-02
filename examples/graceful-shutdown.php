@@ -25,11 +25,8 @@ require __DIR__ . '/bootstrap.php';
 use PhpMiniHttpServer\EventLoop\SelectLoop;
 use PhpMiniHttpServer\Http\Middleware\ErrorHandlerMiddleware;
 use PhpMiniHttpServer\Http\Middleware\MiddlewarePipeline;
-use PhpMiniHttpServer\Http\Protocol\HttpParser;
-use PhpMiniHttpServer\Http\Protocol\ResponseEncoder;
 use PhpMiniHttpServer\Http\Response\HttpResponse;
 use PhpMiniHttpServer\Http\Response\ResponseFactory;
-use PhpMiniHttpServer\Metrics\ServerMetrics;
 use PhpMiniHttpServer\Router\Router;
 use PhpMiniHttpServer\Server\ConnectionHandler;
 use PhpMiniHttpServer\Server\Server;
@@ -77,24 +74,7 @@ if ($serverPid === 0) {
         }
     });
 
-    $loop->onReadable($server->socket(), static function () use ($loop, $server, $application, $logger): void {
-        $connection = $server->accept();
-
-        if ($connection === null) {
-            return;
-        }
-
-        (new ConnectionHandler(
-            loop: $loop,
-            server: $server,
-            connection: $connection,
-            parser: new HttpParser(),
-            application: $application,
-            encoder: new ResponseEncoder(),
-            metrics: new ServerMetrics(),
-            logger: $logger,
-        ))->start();
-    });
+    ConnectionHandler::acceptOn($loop, $server, $application, logger: $logger);
 
     $loop->run();
     $server->stop();

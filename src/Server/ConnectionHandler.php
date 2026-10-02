@@ -19,6 +19,7 @@ use PhpMiniHttpServer\Http\Response\HttpStatusCode;
 use PhpMiniHttpServer\Http\Response\ResponseFactory;
 use PhpMiniHttpServer\Metrics\ServerMetrics;
 use PhpMiniHttpServer\Support\Logger;
+use PhpMiniHttpServer\Support\NullLogger;
 use Throwable;
 
 /**
@@ -56,6 +57,47 @@ final readonly class ConnectionHandler
         private Logger $logger,
         private int $maxBufferedResponseBytes = self::MAX_BUFFERED_RESPONSE_BYTES,
     ) {
+    }
+
+    /**
+     * The accept path every entry point shares: watch the listening socket,
+     * and give each connection it yields a handler of its own. The parser
+     * defaults to the server's configured header/body limits.
+     */
+    public static function acceptOn(
+        SelectLoop $loop,
+        Server $server,
+        RequestHandler $application,
+        ServerMetrics $metrics = new ServerMetrics(),
+        Logger $logger = new NullLogger(),
+        ?HttpParser $parser = null,
+        ResponseEncoder $encoder = new ResponseEncoder(),
+        int $maxBufferedResponseBytes = self::MAX_BUFFERED_RESPONSE_BYTES,
+    ): void {
+        $config = $server->config();
+        $parser ??= new HttpParser($config->maxHeaderBytes, $config->maxBodyBytes);
+
+        $loop->onReadable($server->socket(), static function () use (
+            $loop,
+            $server,
+            $application,
+            $metrics,
+            $logger,
+            $parser,
+            $encoder,
+            $maxBufferedResponseBytes,
+        ): void {
+            $connection = $server->accept();
+
+            if ($connection === null) {
+                return;
+            }
+
+            $logger->log(sprintf('#%d connected from %s', $connection->id, $connection->remoteAddress()));
+
+            new self($loop, $server, $connection, $parser, $application, $encoder, $metrics, $logger, $maxBufferedResponseBytes)
+                ->start();
+        });
     }
 
     /**

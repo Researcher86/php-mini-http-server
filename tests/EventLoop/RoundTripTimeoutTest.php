@@ -7,16 +7,12 @@ namespace PhpMiniHttpServer\Tests\EventLoop;
 use PhpMiniHttpServer\EventLoop\SelectLoop;
 use PhpMiniHttpServer\Http\Middleware\ErrorHandlerMiddleware;
 use PhpMiniHttpServer\Http\Middleware\MiddlewarePipeline;
-use PhpMiniHttpServer\Http\Protocol\HttpParser;
-use PhpMiniHttpServer\Http\Protocol\ResponseEncoder;
 use PhpMiniHttpServer\Http\Response\HttpResponse;
 use PhpMiniHttpServer\Http\Response\ResponseFactory;
-use PhpMiniHttpServer\Metrics\ServerMetrics;
 use PhpMiniHttpServer\Router\Router;
 use PhpMiniHttpServer\Server\ConnectionHandler;
 use PhpMiniHttpServer\Server\Server;
 use PhpMiniHttpServer\Server\ServerConfig;
-use PhpMiniHttpServer\Support\NullLogger;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -51,36 +47,8 @@ final class RoundTripTimeoutTest extends TestCase
         $loop = new SelectLoop();
         $this->loop = $loop;
 
-        $metrics = new ServerMetrics();
-        $logger = new NullLogger();
-        $parser = new HttpParser();
-        $encoder = new ResponseEncoder();
 
-        $server = $this->server;
-        $loop->onReadable($server->socket(), static function ($stream) use (
-            $loop,
-            $server,
-            $parser,
-            $pipeline,
-            $encoder,
-            $metrics,
-            $logger,
-        ): void {
-            $connection = $server->accept();
-
-            if ($connection !== null) {
-                (new ConnectionHandler(
-                    loop: $loop,
-                    server: $server,
-                    connection: $connection,
-                    parser: $parser,
-                    application: $pipeline,
-                    encoder: $encoder,
-                    metrics: $metrics,
-                    logger: $logger,
-                ))->start();
-            }
-        });
+        ConnectionHandler::acceptOn($loop, $this->server, $pipeline);
     }
 
     protected function tearDown(): void

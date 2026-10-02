@@ -9,8 +9,6 @@ use PhpMiniHttpServer\Http\Middleware\ErrorHandlerMiddleware;
 use PhpMiniHttpServer\Http\Middleware\LoggingMiddleware;
 use PhpMiniHttpServer\Http\Middleware\MiddlewareInterface;
 use PhpMiniHttpServer\Http\Middleware\MiddlewarePipeline;
-use PhpMiniHttpServer\Http\Protocol\HttpParser;
-use PhpMiniHttpServer\Http\Protocol\ResponseEncoder;
 use PhpMiniHttpServer\Http\Request\HttpRequest;
 use PhpMiniHttpServer\Http\Response\HttpResponse;
 use PhpMiniHttpServer\Http\Response\HttpStatusCode;
@@ -51,8 +49,6 @@ try {
     exit(1);
 }
 
-$parser = new HttpParser($config->maxHeaderBytes, $config->maxBodyBytes);
-$encoder = new ResponseEncoder();
 $router = new Router();
 $metrics = new ServerMetrics();
 $logger = new StderrLogger();
@@ -222,26 +218,7 @@ $loop->every(1.0, static function () use (&$draining, $loop, $server, $logger, $
  * the per-connection state machine that parses, routes and flushes (Phase
  * 18 backpressure, Phase 14 keep-alive, Phase 13 errors all live inside).
  */
-$loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $application, $metrics, $logger): void {
-    $connection = $server->accept();
-
-    if ($connection === null) {
-        return;
-    }
-
-    $logger->log(sprintf('#%d connected from %s', $connection->id, $connection->remoteAddress()));
-
-    (new ConnectionHandler(
-        loop: $loop,
-        server: $server,
-        connection: $connection,
-        parser: $parser,
-        application: $application,
-        encoder: $encoder,
-        metrics: $metrics,
-        logger: $logger,
-    ))->start();
-});
+ConnectionHandler::acceptOn($loop, $server, $application, $metrics, $logger);
 
 printf("Listening on tcp://%s:%d\n", $server->getHost(), $server->getPort());
 printf("State: %s\n", $server->state()->value);

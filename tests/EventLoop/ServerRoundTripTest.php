@@ -9,19 +9,15 @@ use PhpMiniHttpServer\EventLoop\SelectLoop;
 use PhpMiniHttpServer\Http\Headers\Headers;
 use PhpMiniHttpServer\Http\Middleware\ErrorHandlerMiddleware;
 use PhpMiniHttpServer\Http\Middleware\MiddlewarePipeline;
-use PhpMiniHttpServer\Http\Protocol\HttpParser;
 use PhpMiniHttpServer\Http\Protocol\HttpVersion;
-use PhpMiniHttpServer\Http\Protocol\ResponseEncoder;
 use PhpMiniHttpServer\Http\Request\HttpRequest;
 use PhpMiniHttpServer\Http\Response\HttpResponse;
 use PhpMiniHttpServer\Http\Response\HttpStatusCode;
 use PhpMiniHttpServer\Http\Response\ResponseFactory;
-use PhpMiniHttpServer\Metrics\ServerMetrics;
 use PhpMiniHttpServer\Router\Router;
 use PhpMiniHttpServer\Server\ConnectionHandler;
 use PhpMiniHttpServer\Server\Server;
 use PhpMiniHttpServer\Server\ServerConfig;
-use PhpMiniHttpServer\Support\NullLogger;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -424,29 +420,10 @@ final class ServerRoundTripTest extends TestCase
     private function exchange(array $script): array
     {
         $loop = new SelectLoop();
-        $parser = new HttpParser();
-        $encoder = new ResponseEncoder();
         $server = $this->server;
         $pipeline = $this->pipeline;
 
-        $loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $pipeline): void {
-            $connection = $server->accept();
-
-            if ($connection === null) {
-                return;
-            }
-
-            (new ConnectionHandler(
-                loop: $loop,
-                server: $server,
-                connection: $connection,
-                parser: $parser,
-                application: $pipeline,
-                encoder: $encoder,
-                metrics: new ServerMetrics(),
-                logger: new NullLogger(),
-            ))->start();
-        });
+        ConnectionHandler::acceptOn($loop, $server, $pipeline);
 
         $client = stream_socket_client("tcp://127.0.0.1:{$server->getPort()}");
         $this->assertIsResource($client);

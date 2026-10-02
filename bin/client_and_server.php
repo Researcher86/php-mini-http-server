@@ -5,12 +5,9 @@ declare(strict_types=1);
 use PhpMiniHttpServer\EventLoop\SelectLoop;
 use PhpMiniHttpServer\Http\Middleware\ErrorHandlerMiddleware;
 use PhpMiniHttpServer\Http\Middleware\MiddlewarePipeline;
-use PhpMiniHttpServer\Http\Protocol\HttpParser;
-use PhpMiniHttpServer\Http\Protocol\ResponseEncoder;
 use PhpMiniHttpServer\Http\Request\HttpRequest;
 use PhpMiniHttpServer\Http\Response\HttpResponse;
 use PhpMiniHttpServer\Http\Response\ResponseFactory;
-use PhpMiniHttpServer\Metrics\ServerMetrics;
 use PhpMiniHttpServer\Router\Router;
 use PhpMiniHttpServer\Server\ConnectionHandler;
 use PhpMiniHttpServer\Server\Server;
@@ -56,10 +53,7 @@ if ($serverPid === 0) {
 
     file_put_contents($portFile, (string) $server->getPort());
 
-    $parser = new HttpParser();
-    $encoder = new ResponseEncoder();
     $router = new Router();
-    $metrics = new ServerMetrics();
     $logger = new StderrLogger();
     $loop = new SelectLoop();
 
@@ -76,10 +70,7 @@ if ($serverPid === 0) {
     // needs — after drain the loop has nothing left to wait for and returns.
     pcntl_async_signals(true);
 
-    $draining = false;
-
-    $onSignal = static function () use (&$draining, $loop, $server, $logger): void {
-        $draining = true;
+    $onSignal = static function () use ($loop, $server, $logger): void {
         $logger->log('shutdown draining: finishing active requests');
         $loop->removeReadable($server->socket());
         $server->drain();
@@ -87,24 +78,7 @@ if ($serverPid === 0) {
 
     pcntl_signal(SIGTERM, $onSignal);
 
-    $loop->onReadable($server->socket(), static function ($stream) use ($loop, $server, $parser, $encoder, $application, $metrics, $logger): void {
-        $connection = $server->accept();
-
-        if ($connection === null) {
-            return;
-        }
-
-        (new ConnectionHandler(
-            loop: $loop,
-            server: $server,
-            connection: $connection,
-            parser: $parser,
-            application: $application,
-            encoder: $encoder,
-            metrics: $metrics,
-            logger: $logger,
-        ))->start();
-    });
+    ConnectionHandler::acceptOn($loop, $server, $application, logger: $logger);
 
     printf("Serving on tcp://127.0.0.1:%d (%s)\n", $server->getPort(), $server->state()->value);
 
