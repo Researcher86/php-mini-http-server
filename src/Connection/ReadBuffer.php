@@ -25,9 +25,7 @@ final class ReadBuffer
 
     public function append(string $chunk): void
     {
-        if ($chunk !== '') {
-            $this->data .= $chunk;
-        }
+        $this->data .= $chunk;
     }
 
     public function length(): int
@@ -46,11 +44,8 @@ final class ReadBuffer
      */
     public function consume(int $length): void
     {
-        if ($length <= 0) {
-            return;
-        }
-
-        $this->data = substr($this->data, $length);
+        // max(): a negative offset would make substr() keep the tail instead.
+        $this->data = substr($this->data, max(0, $length));
     }
 
     public function __toString(): string

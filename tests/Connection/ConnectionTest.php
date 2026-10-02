@@ -24,14 +24,14 @@ final class ConnectionTest extends TestCase
         $this->socket = $pair[0];
         $peer = $pair[1];
 
-        $this->connection = Connection::accepted(1, $this->socket, 'unix://peer');
+        $this->connection = new Connection(1, $this->socket, 'unix://peer');
         $this->assertIsResource($peer);
         fclose($peer);
     }
 
     public function testStartsInNewStateThenConnects(): void
     {
-        $connection = Connection::accepted(7, $this->socket, 'peer', new FakeClock(100.0));
+        $connection = new Connection(7, $this->socket, 'peer', new FakeClock(100.0));
 
         $this->assertSame(ConnectionState::NEW, $connection->state());
         $this->assertFalse($connection->isClosed());

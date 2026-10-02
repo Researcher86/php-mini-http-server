@@ -36,7 +36,7 @@ final class PartialWriteIntegrationTest extends TestCase
 
         [$this->serverSide, $this->clientSide] = $pair;
         stream_set_blocking($this->serverSide, false); // like Server does for accepted sockets
-        $this->connection = Connection::accepted(1, $this->serverSide, 'unix://peer');
+        $this->connection = new Connection(1, $this->serverSide, 'unix://peer');
         $this->connection->connect();
         $this->connection->startWriting();
 

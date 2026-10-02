@@ -38,7 +38,7 @@ final class PartialReadIntegrationTest extends TestCase
         $this->assertIsArray($pair);
 
         [$this->serverSide, $this->clientSide] = $pair;
-        $this->connection = Connection::accepted(1, $this->serverSide, 'unix://peer');
+        $this->connection = new Connection(1, $this->serverSide, 'unix://peer');
         $this->connection->connect();
         $this->connection->startReading();
 

@@ -19,18 +19,17 @@ use PhpMiniHttpServer\Support\SystemClock;
  *     State           where in the lifecycle the connection is
  *     Metadata        id, remote address, timestamps, byte counters
  *
- * Read and write buffers start as plain strings on purpose. Phase 4 turns
- * the read side into a ReadBuffer that answers "is a full request here?";
- * Phase 8 turns the write side into a WriteBuffer that survives partial
- * writes. Keeping them dumb here keeps each phase's lesson isolated.
+ * The read side is a ReadBuffer that accumulates bytes until the parser
+ * finds a full request in them; the write side is a WriteBuffer that
+ * survives partial writes.
  */
 final class Connection
 {
-    private ConnectionState $state;
+    private ConnectionState $state = ConnectionState::NEW;
 
-    private ReadBuffer $readBuffer;
+    private readonly ReadBuffer $readBuffer;
 
-    private WriteBuffer $writeBuffer;
+    private readonly WriteBuffer $writeBuffer;
 
     private int $bytesRead = 0;
 
@@ -43,6 +42,9 @@ final class Connection
 
     private readonly float $connectedAt;
 
+    /**
+     * @param resource $socket a freshly accepted client socket
+     */
     public function __construct(
         public readonly int $id,
         private readonly mixed $socket,
@@ -51,19 +53,8 @@ final class Connection
     ) {
         $this->readBuffer = new ReadBuffer();
         $this->writeBuffer = new WriteBuffer();
-        $this->state = ConnectionState::NEW;
         $this->connectedAt = $clock->now();
         $this->lastActivityAt = $this->connectedAt;
-    }
-
-    /**
-     * Wrap a freshly accepted socket in a Connection.
-     *
-     * @param resource $socket
-     */
-    public static function accepted(int $id, mixed $socket, string $remoteAddress, Clock $clock = new SystemClock()): self
-    {
-        return new self($id, $socket, $remoteAddress, $clock);
     }
 
     public function connect(): void
@@ -74,20 +65,17 @@ final class Connection
 
     public function startReading(): void
     {
-        $this->assertNotClosed('startReading');
-        $this->state = ConnectionState::READING;
+        $this->moveTo(ConnectionState::READING, 'startReading');
     }
 
     public function startProcessing(): void
     {
-        $this->assertNotClosed('startProcessing');
-        $this->state = ConnectionState::PROCESSING;
+        $this->moveTo(ConnectionState::PROCESSING, 'startProcessing');
     }
 
     public function startWriting(): void
     {
-        $this->assertNotClosed('startWriting');
-        $this->state = ConnectionState::WRITING;
+        $this->moveTo(ConnectionState::WRITING, 'startWriting');
     }
 
     /**
@@ -96,8 +84,7 @@ final class Connection
      */
     public function backToReading(): void
     {
-        $this->assertNotClosed('backToReading');
-        $this->state = ConnectionState::READING;
+        $this->moveTo(ConnectionState::READING, 'backToReading');
     }
 
     public function close(): void
@@ -247,6 +234,12 @@ final class Connection
                 $expected->value,
             ));
         }
+    }
+
+    private function moveTo(ConnectionState $state, string $action): void
+    {
+        $this->assertNotClosed($action);
+        $this->state = $state;
     }
 
     private function assertNotClosed(string $action): void

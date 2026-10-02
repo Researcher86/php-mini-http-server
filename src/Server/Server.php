@@ -111,7 +111,7 @@ final class Server
         stream_set_blocking($client, false);
 
         $id = $this->nextConnectionId++;
-        $connection = Connection::accepted($id, $client, (string) $peer, $this->clock);
+        $connection = new Connection($id, $client, (string) $peer, $this->clock);
         $connection->connect();
 
         $this->connections[$id] = $connection;

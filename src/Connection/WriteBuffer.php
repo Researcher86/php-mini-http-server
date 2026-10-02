@@ -27,9 +27,7 @@ final class WriteBuffer
 
     public function append(string $chunk): void
     {
-        if ($chunk !== '') {
-            $this->data .= $chunk;
-        }
+        $this->data .= $chunk;
     }
 
     public function length(): int
@@ -70,9 +68,7 @@ final class WriteBuffer
             throw new WriteBufferException('Failed to write to socket.');
         }
 
-        if ($written > 0) {
-            $this->data = substr($this->data, $written);
-        }
+        $this->data = substr($this->data, $written);
 
         return $written;
     }
