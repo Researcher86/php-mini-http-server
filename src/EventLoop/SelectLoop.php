@@ -102,19 +102,17 @@ final class SelectLoop implements EventLoop
 
     public function addTimer(float $delay, Closure $handler): int
     {
-        return $this->scheduleTimer(new Timer($this->nextTimerId++, microtime(true) + $delay, null, $handler));
+        return $this->schedule($delay, null, $handler);
     }
 
     public function every(float $interval, Closure $handler): int
     {
-        return $this->scheduleTimer(new Timer($this->nextTimerId++, microtime(true) + $interval, $interval, $handler));
+        return $this->schedule($interval, $interval, $handler);
     }
 
     public function cancelTimer(int $timerId): void
     {
-        if (isset($this->timers[$timerId])) {
-            $this->timers[$timerId]->cancel();
-        }
+        ($this->timers[$timerId] ?? null)?->cancel();
     }
 
     public function run(): void
@@ -147,15 +145,17 @@ final class SelectLoop implements EventLoop
             // backwards under an NTP correction and report a negative
             // stretch.
             $waitStarted = hrtime(true);
-            [$readyToRead, $readyToWrite] = $this->waitForStreams($timeout, $this->hasWatchedStreams());
+            [$readyToRead, $readyToWrite] = $this->waitForStreams($timeout);
             $dispatchStarted = hrtime(true);
 
+            // Handlers are looked up at call time, not when select()
+            // returned — see dispatch().
             foreach ($readyToRead as $id => $stream) {
-                $this->dispatchRead($id, $stream);
+                $this->dispatch($this->readHandlers, $id, $stream);
             }
 
             foreach ($readyToWrite as $id => $stream) {
-                $this->dispatchWrite($id, $stream);
+                $this->dispatch($this->writeHandlers, $id, $stream);
             }
 
             $this->runDueTimers();
@@ -182,11 +182,12 @@ final class SelectLoop implements EventLoop
         return count($this->readable);
     }
 
-    private function scheduleTimer(Timer $timer): int
+    private function schedule(float $delay, ?float $interval, Closure $handler): int
     {
-        $this->timers[$timer->id] = $timer;
+        $id = $this->nextTimerId++;
+        $this->timers[$id] = new Timer($id, microtime(true) + $delay, $interval, $handler);
 
-        return $timer->id;
+        return $id;
     }
 
     /**
@@ -222,7 +223,7 @@ final class SelectLoop implements EventLoop
      */
     private function hasWork(): bool
     {
-        if ($this->readable !== [] || $this->writable !== []) {
+        if ($this->hasWatchedStreams()) {
             return true;
         }
 
@@ -246,9 +247,9 @@ final class SelectLoop implements EventLoop
      *
      * @return array{0: array<int, resource>, 1: array<int, resource>}
      */
-    private function waitForStreams(?float $timeout, bool $hasStreams): array
+    private function waitForStreams(?float $timeout): array
     {
-        if (!$hasStreams) {
+        if (!$this->hasWatchedStreams()) {
             if ($timeout !== null && $timeout > 0.0) {
                 usleep((int) ($timeout * 1_000_000));
             }
@@ -322,23 +323,15 @@ final class SelectLoop implements EventLoop
      * and it would end the loop for every other client too. So readiness is
      * re-checked against the watch list and the resource itself, right
      * before the call.
+     *
+     * @param array<int, Closure(resource): void> $handlers
+     * @param resource                            $stream
      */
-    private function dispatchRead(int $id, mixed $stream): void
+    private function dispatch(array $handlers, int $id, mixed $stream): void
     {
-        if (!isset($this->readHandlers[$id]) || !is_resource($stream)) {
-            return;
+        if (isset($handlers[$id]) && is_resource($stream)) {
+            $handlers[$id]($stream);
         }
-
-        ($this->readHandlers[$id])($stream);
-    }
-
-    private function dispatchWrite(int $id, mixed $stream): void
-    {
-        if (!isset($this->writeHandlers[$id]) || !is_resource($stream)) {
-            return;
-        }
-
-        ($this->writeHandlers[$id])($stream);
     }
 
     private function runDueTimers(): void

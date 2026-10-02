@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace PhpMiniHttpServer\Server;
 
+use Closure;
 use PhpMiniHttpServer\Connection\Connection;
 use PhpMiniHttpServer\Support\Clock;
 use PhpMiniHttpServer\Support\SystemClock;
@@ -130,16 +131,8 @@ final class Server
     public function closeIdleConnections(float $idleSeconds): array
     {
         $now = $this->clock->now();
-        $closed = [];
 
-        foreach ($this->connections as $connection) {
-            if ($now - $connection->lastActivityAt() > $idleSeconds) {
-                $this->close($connection);
-                $closed[] = $connection;
-            }
-        }
-
-        return $closed;
+        return $this->closeWhere(static fn (Connection $c): bool => $now - $c->lastActivityAt() > $idleSeconds);
     }
 
     /**
@@ -155,18 +148,12 @@ final class Server
     public function closeSlowHeaderReads(float $timeoutSeconds): array
     {
         $now = $this->clock->now();
-        $closed = [];
 
-        foreach ($this->connections as $connection) {
-            $since = $connection->waitingForHeadersSince();
+        return $this->closeWhere(static function (Connection $c) use ($now, $timeoutSeconds): bool {
+            $since = $c->waitingForHeadersSince();
 
-            if ($since > 0.0 && $now - $since > $timeoutSeconds) {
-                $this->close($connection);
-                $closed[] = $connection;
-            }
-        }
-
-        return $closed;
+            return $since > 0.0 && $now - $since > $timeoutSeconds;
+        });
     }
 
     public function close(Connection $connection): void
@@ -187,15 +174,24 @@ final class Server
      */
     public function closeRestingConnections(): array
     {
-        $closed = [];
+        return $this->closeWhere(static fn (Connection $c): bool => $c->writeBuffer()->isEmpty()
+            && $c->readBuffer()->isEmpty()
+            && $c->waitingForHeadersSince() === 0.0);
+    }
 
-        foreach ($this->connections as $connection) {
-            if ($connection->writeBuffer()->isEmpty()
-                && $connection->readBuffer()->isEmpty()
-                && $connection->waitingForHeadersSince() === 0.0) {
-                $this->close($connection);
-                $closed[] = $connection;
-            }
+    /**
+     * The shape all three sweeps share: close what matches, report it.
+     *
+     * @param Closure(Connection): bool $matches
+     *
+     * @return list<Connection>
+     */
+    private function closeWhere(Closure $matches): array
+    {
+        $closed = array_values(array_filter($this->connections, $matches));
+
+        foreach ($closed as $connection) {
+            $this->close($connection);
         }
 
         return $closed;
@@ -303,23 +299,10 @@ final class Server
      */
     public function getPort(): int
     {
-        if ($this->socket === null) {
-            return $this->config->port;
-        }
+        $name = $this->socket === null ? false : stream_socket_get_name($this->socket, false);
+        $colon = $name === false ? false : strrpos($name, ':');
 
-        $name = stream_socket_get_name($this->socket, false);
-
-        if ($name === false) {
-            return $this->config->port;
-        }
-
-        $colon = strrpos($name, ':');
-
-        if ($colon === false) {
-            return $this->config->port;
-        }
-
-        return (int) substr($name, $colon + 1);
+        return $colon === false ? $this->config->port : (int) substr($name, $colon + 1);
     }
 
     public function getHost(): string
