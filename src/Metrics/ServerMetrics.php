@@ -71,11 +71,9 @@ final class ServerMetrics
 
     public function requestsPerSecond(): float
     {
-        if ($this->totalRequests === 0) {
-            return 0.0;
-        }
+        $uptime = $this->uptimeSeconds();
 
-        return $this->totalRequests / $this->uptimeSeconds();
+        return $uptime > 0.0 ? $this->totalRequests / $uptime : 0.0;
     }
 
     public function averageRequestDuration(): float

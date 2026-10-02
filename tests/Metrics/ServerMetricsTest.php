@@ -58,4 +58,15 @@ final class ServerMetricsTest extends TestCase
         $this->assertSame(5.0, $metrics->uptimeSeconds());
         $this->assertSame(2.0, $metrics->requestsPerSecond());
     }
+
+    public function testRequestsPerSecondBeforeAnyUptimeHasPassedIsZero(): void
+    {
+        // A request recorded in the same instant the server started: no time
+        // has passed to divide by, which must read as "no rate yet", not as
+        // a DivisionByZeroError out of the /metrics route.
+        $metrics = new ServerMetrics(new FakeClock(1000.0));
+        $metrics->recordRequest(0.0);
+
+        $this->assertSame(0.0, $metrics->requestsPerSecond());
+    }
 }
