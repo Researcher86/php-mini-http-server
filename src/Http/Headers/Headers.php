@@ -139,9 +139,10 @@ final class Headers
     /**
      * A header name is a token: visible ASCII minus the delimiter
      * characters. Notably that excludes space and tab, which is the whole
-     * point of checking.
+     * point of checking. Shared with ResponseEncoder, which holds outgoing
+     * headers to the same grammar.
      */
-    private static function isToken(string $name): bool
+    public static function isToken(string $name): bool
     {
         return $name !== '' && preg_match('/^[!#$%&\'*+\-.^_`|~0-9A-Za-z]+$/', $name) === 1;
     }
@@ -153,7 +154,7 @@ final class Headers
      * somebody downstream will act on, and a NUL is a string terminator in
      * every language this request might be forwarded to.
      */
-    private static function isFieldValue(string $value): bool
+    public static function isFieldValue(string $value): bool
     {
         return preg_match('/^[\t\x20-\x7E\x80-\xFF]*$/', $value) === 1;
     }
