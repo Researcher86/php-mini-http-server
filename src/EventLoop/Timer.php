@@ -54,6 +54,10 @@ final class Timer
      * Advance a periodic timer to the next firing, anchored to the original
      * schedule rather than sliding by a full interval each time — under a
      * slow loop that keeps the cadence honest instead of drifting late.
+     *
+     * Called right after a firing at $now, so the next deadline is the first
+     * slot strictly after $now: a firing that lands exactly on a slot has
+     * used it up, and leaving the deadline there would fire again at once.
      */
     public function reschedule(float $now): void
     {
@@ -61,7 +65,7 @@ final class Timer
             return;
         }
 
-        $periods = (int) ceil(($now - $this->anchor) / $this->interval);
+        $periods = (int) floor(($now - $this->anchor) / $this->interval) + 1;
         $this->dueAt = $this->anchor + $periods * $this->interval;
     }
 }

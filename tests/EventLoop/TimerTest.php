@@ -38,8 +38,12 @@ final class TimerTest extends TestCase
         $timer->reschedule(113.4);
         $this->assertSame(120.0, $timer->dueAt);
 
+        // reschedule() runs right after a firing, so a firing that lands
+        // exactly on a slot has used that slot up: the next one is 130.
+        // Staying at 120 would fire the timer a second time on the very
+        // next loop pass.
         $timer->reschedule(120.0);
-        $this->assertSame(120.0, $timer->dueAt);
+        $this->assertSame(130.0, $timer->dueAt);
 
         // Even after a long stall, cadence snaps back to the schedule.
         $timer->reschedule(155.0);
