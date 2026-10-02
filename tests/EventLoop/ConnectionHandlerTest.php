@@ -277,6 +277,80 @@ final class ConnectionHandlerTest extends TestCase
         fclose($client);
     }
 
+    public function testClientThatHalfClosesAfterItsRequestStillGetsTheResponse(): void
+    {
+        $router = new Router();
+        $router->get('/hello', static fn (): HttpResponse => ResponseFactory::text('Hello'));
+
+        $loop = new SelectLoop();
+        $this->wireServer($loop, new HttpParser(), new MiddlewarePipeline($router), new ResponseEncoder());
+
+        $client = stream_socket_client("tcp://127.0.0.1:{$this->server->getPort()}");
+        $this->assertIsResource($client);
+
+        // `printf 'GET ...' | nc host port` does exactly this: send the
+        // request, then shut down the sending half. The FIN means "no more
+        // requests", not "stop answering" — the response is still owed.
+        fwrite($client, "GET /hello HTTP/1.1\r\nHost: t\r\n\r\n");
+        stream_socket_shutdown($client, STREAM_SHUT_WR);
+        stream_set_blocking($client, false);
+
+        $received = '';
+        $loop->onReadable($client, static function ($stream) use (&$received): void {
+            $received .= (string) fread($stream, 8192);
+        });
+
+        $loop->addTimer(0.2, static fn () => $loop->stop());
+        $loop->run();
+
+        $this->assertStringContainsString("HTTP/1.1 200 OK", $received);
+        $this->assertStringEndsWith('Hello', $received);
+        $this->assertSame(0, $this->server->connectionCount());
+
+        fclose($client);
+    }
+
+    public function testNothingIsServedAfterARequestThatAskedToClose(): void
+    {
+        $router = new Router();
+        // Big enough that the response is still being written when the next
+        // request arrives — the client reads nothing until later.
+        $router->get('/big', static fn (): HttpResponse => ResponseFactory::text(str_repeat('b', 16_000_000)));
+        $router->get('/hello', static fn (): HttpResponse => ResponseFactory::text('Hello'));
+
+        $loop = new SelectLoop();
+        $this->wireServer($loop, new HttpParser(), new MiddlewarePipeline($router), new ResponseEncoder());
+
+        $client = stream_socket_client("tcp://127.0.0.1:{$this->server->getPort()}");
+        $this->assertIsResource($client);
+        stream_set_blocking($client, false);
+
+        fwrite($client, "GET /big HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n");
+
+        // "Connection: close" was the last word on this connection: a request
+        // sent after it must not be served, and must not keep the
+        // connection alive.
+        $loop->addTimer(0.05, static function () use ($client): void {
+            fwrite($client, "GET /hello HTTP/1.1\r\nHost: t\r\n\r\n");
+        });
+
+        $received = '';
+        $loop->addTimer(0.1, static function () use ($loop, $client, &$received): void {
+            $loop->onReadable($client, static function ($stream) use (&$received): void {
+                $received .= (string) fread($stream, 65536);
+            });
+        });
+
+        $loop->addTimer(0.5, static fn () => $loop->stop());
+        $loop->run();
+
+        $this->assertSame(1, substr_count($received, 'HTTP/1.1 '));
+        $this->assertStringNotContainsString('Hello', $received);
+        $this->assertSame(0, $this->server->connectionCount());
+
+        fclose($client);
+    }
+
     /**
      * Register the accept path: each accepted connection gets a
      * ConnectionHandler wired to the shared parser/pipeline/encoder.

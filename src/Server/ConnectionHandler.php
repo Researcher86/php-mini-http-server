@@ -71,8 +71,16 @@ final readonly class ConnectionHandler
     {
         $data = fread($stream, 8192);
 
-        if ($data === false || $data === '') { // EOF → the client is gone
-            $this->close();
+        if ($data === false || $data === '') {
+            // EOF: the client has stopped sending, which is not the same as
+            // having stopped listening — `printf 'GET …' | nc` half-closes
+            // right after its request and then waits for the answer. So
+            // whatever is still queued is written out first.
+            if ($this->connection->writeBuffer()->isEmpty()) {
+                $this->close();
+            } else {
+                $this->closeAfterFlush($stream);
+            }
 
             return;
         }
@@ -165,9 +173,22 @@ final readonly class ConnectionHandler
 
         // Phase 14+15: once the queued responses are fully written the
         // connection either goes back to READING (keep-alive) or closes.
-        $this->drain($closeAfterDrain
-            ? $this->close(...)
-            : $this->connection->backToReading(...));
+        if ($closeAfterDrain) {
+            $this->closeAfterFlush($stream);
+        } else {
+            $this->drain($this->connection->backToReading(...));
+        }
+    }
+
+    /**
+     * The queued responses are this connection's last word: stop reading —
+     * a request that arrives now must not be served, nor re-arm keep-alive
+     * by replacing the pending close — and close once they are written.
+     */
+    private function closeAfterFlush(mixed $stream): void
+    {
+        $this->loop->removeReadable($stream);
+        $this->drain($this->close(...));
     }
 
     /**
@@ -312,9 +333,9 @@ final readonly class ConnectionHandler
      * part of a large response is handled the same way as a socket that
      * takes it all at once.
      *
-     * @param Closure(): void|null $onDrained
+     * @param Closure(): void $onDrained
      */
-    private function drain(?Closure $onDrained = null): void
+    private function drain(Closure $onDrained): void
     {
         $stream = $this->connection->socket();
 
@@ -344,10 +365,7 @@ final readonly class ConnectionHandler
             }
 
             $this->loop->removeWritable($s);
-
-            if ($onDrained !== null) {
-                $onDrained();
-            }
+            $onDrained();
         });
     }
 
