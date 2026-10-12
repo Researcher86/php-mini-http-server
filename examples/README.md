@@ -26,7 +26,7 @@ make example EXAMPLE=graceful-shutdown
 | `partial-request.php` | What does the server do with half a request? A request is dribbled out one byte at a time; the server says nothing until the last byte. |
 | `keep-alive.php` | Is the second request on a connection actually cheaper? Twenty requests on one connection, timed against twenty connections of their own. |
 | `slow-client.php` | Can a client that never reads its responses hurt anyone else? It pipelines until the write buffer passes its ceiling; a healthy client is timed throughout and never notices. |
-| `graceful-shutdown.php` | What does SIGTERM do to a client that is already connected? It runs its own server so it can signal it, then asks for one more thing and is told 503 rather than left in silence. |
+| `graceful-shutdown.php` | What does SIGTERM do to a client that is already connected? It runs its own server so it can signal it mid-request, then finishes that request and is told 503 rather than left in silence. |
 
 `graceful-shutdown.php` needs no running server of its own — it forks one.
 

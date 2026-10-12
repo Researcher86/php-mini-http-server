@@ -32,6 +32,10 @@ reader is most likely to act on by mistake.
 | Backpressure pauses reads; it never drops the client | current, [why](#a-slow-client-is-paused-not-punished) |
 | Two clocks: an idle timeout and a header timeout | current, [why](#two-clocks-idle-and-slowloris) |
 | Draining refuses new requests with 503 + close, rather than hanging up | current, [why](#shutdown-says-why) |
+| Draining is bounded by `drainTimeout`; what is left after it is closed | current, [why](#shutdown-says-why) |
+| A signal handler only writes to a self-pipe; the loop runs the shutdown | current, [why](#a-signal-only-knocks) |
+| An empty read is EOF only when `feof()` agrees | current, [why](#an-empty-read-is-not-a-hang-up) |
+| An empty read buffer does not start the header clock | current, [why](#an-empty-read-is-not-a-hang-up) |
 | The connection state enum is set by the code, not just drawn in a diagram | current, [why](#states-the-server-actually-enters) |
 | Buffers hold bytes and know nothing about HTTP | current, [why](#buffers-do-not-parse) |
 | Periodic timers are anchored to their original schedule, not the last firing | current, [why](#anchored-timers) |
@@ -74,7 +78,11 @@ choice:
 - a timer's resolution is the select timeout, so timers are approximate.
 
 The [benchmark](../bin/bench.php) drives 1000 concurrent connections
-precisely because that is where this starts to show.
+precisely because that is where this starts to show. Its server
+([benchmarks/bootstrap.php](../benchmarks/bootstrap.php)) raises
+`maxConnections` to 1010 for that: the default of 512 would quietly cap the
+top level at half its stated concurrency, while 1010 plus stdio and the
+listening socket still stays under `FD_SETSIZE`.
 
 Two details inside the loop are worth knowing about, both of them the kind
 of thing that only appears once the server runs for real:
@@ -252,6 +260,65 @@ more:
 A second signal skips the waiting. The distinction between `drain()` (stop
 accepting) and `finish()` (close what is left) is what makes both behaviours
 one state machine rather than two code paths.
+
+**Draining has a deadline.** It used to wait for as long as it took: a
+connection that never finished its request kept the server alive until the
+idle or header sweep happened to reap it, and only if the process running
+the server ran those sweeps at all — the examples did not. A process
+manager sending SIGTERM wants an answer it can plan around, so
+`ServerConfig::$drainTimeout` (30 seconds by default) bounds the wait;
+whatever is still open when it passes is closed, the same way a second
+signal closes it. It cannot preempt a running handler — the loop reaches the
+deadline between handlers — which is the README's "keep handlers short"
+again.
+
+# A signal only knocks
+
+`bin/server.php` used to do the whole first step of shutdown inside the
+signal handler: unwatch the listening socket, `drain()`, reap resting
+connections, and on a second signal `finish()` and stop the loop. With
+`pcntl_async_signals(true)` that handler runs between *any* two statements
+of the interrupted code — halfway through `ConnectionHandler` walking a
+pipelined batch, or a sweep iterating the connection list, or the loop
+copying its watch arrays for `select()`. Closing sockets and editing the
+loop's lists from there changes them under the feet of whatever was running.
+
+php-mini-cache hit the concrete version of this (a shutdown timer registered
+from the handler was lost when its timer manager rebuilt its list mid-pass,
+and the server stopped accepting but never stopped), and fixed it with a
+self-pipe, the pattern php-worker-pool's Master already used. This project
+takes the same fix: the handler writes one byte to a socket pair and does
+nothing else. The read end is just another watched stream, so the loop
+wakes — the signal interrupts `select()` anyway — and runs
+[GracefulShutdown](../src/Server/GracefulShutdown.php) on its own turn,
+between handlers. One byte per signal, so two signals that land before the
+loop wakes still count as two and still force the end.
+
+Moving it into a class was what made it testable: the drain, the 503, the
+forced second step, the deadline and the "signal changes nothing until the
+loop handles it" property are all tests now, rather than code in a script
+nobody could call.
+
+# An empty read is not a hang-up
+
+`ConnectionHandler` treated `fread() === ''` as EOF. On a blocking socket
+that is true; on a non-blocking one an empty read only says "nothing to read
+right now", and a readiness report can come to nothing. Only `feof()` tells
+the two apart, so it is asked before a connection is torn down.
+
+Testing that needed a loop whose read handlers can be fired by hand — a
+real `select()` never reports a silent socket — which is what
+`ConnectionHandler` being typed against the `EventLoop` interface rather
+than `SelectLoop` buys.
+
+Writing the shutdown tests then found a second bug next to it: after
+serving a keep-alive request the handler parsed the now-empty buffer, got
+"no complete request yet", and started the **header clock**. So a client
+idle between requests looked like one slow to finish its headers: it was
+reaped after `headerTimeout` (5 s) instead of `connectionTimeout`, and a
+draining server never considered it at rest, which quietly disabled the
+"reap resting connections at once" step above. The header clock now starts
+only when there are request bytes waiting.
 
 # States the server actually enters
 

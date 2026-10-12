@@ -16,6 +16,7 @@ use PhpMiniHttpServer\Http\Response\ResponseFactory;
 use PhpMiniHttpServer\Metrics\ServerMetrics;
 use PhpMiniHttpServer\Router\Router;
 use PhpMiniHttpServer\Server\ConnectionHandler;
+use PhpMiniHttpServer\Server\GracefulShutdown;
 use PhpMiniHttpServer\Server\Server;
 use PhpMiniHttpServer\Server\ServerConfig;
 use PhpMiniHttpServer\Server\ServerStartException;
@@ -32,13 +33,15 @@ require __DIR__ . '/bootstrap.php';
 $host = getenv('HTTP_SERVER_HOST') ?: '127.0.0.1';
 $port = (int) (getenv('HTTP_SERVER_PORT') ?: '8080');
 
-// Short idle timeout for the demo: a connection that goes quiet for 5
-// seconds is reclaimed by the periodic sweep.
+// Short timeouts for the demo: a connection that goes quiet for 5 seconds
+// is reclaimed by the periodic sweep, and a shutdown waits at most 10
+// seconds for in-flight requests before closing what is left.
 $config = new ServerConfig(
     host: $host,
     port: $port,
     connectionTimeout: 5.0,
     headerTimeout: 5.0,
+    drainTimeout: 10.0,
 );
 $server = new Server($config);
 
@@ -135,47 +138,15 @@ $application->add(new class implements MiddlewareInterface {
     }
 });
 
-pcntl_async_signals(true);
-
 /**
  * Phase 19: RUNNING → DRAINING → FINISHING → STOPPED.
  *
  * First signal stops accepting new connections but lets active requests
- * finish and flush. A second signal skips the waiting and forces the end.
+ * finish and flush, for at most drainTimeout seconds. A second signal skips
+ * the waiting and forces the end. The signal handlers only wake the loop;
+ * the shutdown itself runs on the loop's turn — see GracefulShutdown.
  */
-$listenStream = $server->socket();
-$draining = false;
-
-// A keep-alive connection sitting between requests has nothing left to
-// finish, and drain() guarantees it will never be allowed to start another
-// one — so reap it now instead of waiting out the idle timeout. Called both
-// the moment shutdown starts and on every tick after, because connections
-// keep arriving at rest as their last response flushes.
-$reapRestingConnections = static function () use ($server, $logger): void {
-    foreach ($server->closeRestingConnections() as $connection) {
-        $logger->log(sprintf('#%d closed: drain (no active request)', $connection->id));
-    }
-};
-
-$onSignal = static function () use (&$draining, $loop, $server, $listenStream, $logger, $reapRestingConnections): void {
-    if ($draining) {
-        $logger->log('shutdown forced');
-        $server->finish();
-        $loop->stop();
-
-        return;
-    }
-
-    $draining = true;
-    $logger->log('shutdown draining: no new connections, finishing active requests');
-    $loop->removeReadable($listenStream);
-    $server->drain();
-
-    $reapRestingConnections();
-};
-
-pcntl_signal(SIGINT, $onSignal);
-pcntl_signal(SIGTERM, $onSignal);
+new GracefulShutdown($loop, $server, $logger)->listenForSignals(SIGTERM, SIGINT);
 
 /**
  * Phase 16+17: scheduled work alongside read/write events. The heartbeat
@@ -187,14 +158,7 @@ $loop->every(2.0, static function () use ($server, $logger): void {
     $logger->log(sprintf('tick: %d active connection(s)', $server->connectionCount()));
 });
 
-$loop->every(1.0, static function () use (&$draining, $loop, $server, $logger, $reapRestingConnections): void {
-    // Phase 19: during drain, connections that answer a refused request
-    // (503 + close) or flush a last in-flight response end up at rest here
-    // and are reaped on this tick rather than on the next idle timeout.
-    if ($draining) {
-        $reapRestingConnections();
-    }
-
+$loop->every(1.0, static function () use ($server, $logger): void {
     foreach ($server->closeIdleConnections($server->config()->connectionTimeout) as $connection) {
         $logger->log(sprintf('#%d closed: idle timeout', $connection->id));
     }
@@ -203,13 +167,6 @@ $loop->every(1.0, static function () use (&$draining, $loop, $server, $logger, $
     // are reaped even though they keep dribbling bytes.
     foreach ($server->closeSlowHeaderReads($server->config()->headerTimeout) as $connection) {
         $logger->log(sprintf('#%d closed: header timeout', $connection->id));
-    }
-
-    // Phase 19: when draining and every connection is done, shut down.
-    if ($draining && $server->connectionCount() === 0) {
-        $logger->log('shutdown: all connections finished');
-        $server->finish();
-        $loop->stop();
     }
 });
 

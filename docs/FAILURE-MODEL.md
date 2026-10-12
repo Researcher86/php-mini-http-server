@@ -182,4 +182,7 @@ reload. Between the old process exiting and a new one binding, connections
 are refused by the kernel.
 
 A second signal skips the waiting entirely and closes whatever is still
-open, mid-response if necessary.
+open, mid-response if necessary. So does `ServerConfig::$drainTimeout`
+(30 seconds by default, 10 in `bin/server.php`) when it passes with
+connections still open. What neither can do is interrupt a handler that is
+running: the loop reaches the deadline only between handlers.

@@ -539,6 +539,12 @@ During `DRAINING`:
 A connection that is between requests when draining starts has nothing left
 to finish, so it is closed at once rather than waiting out its idle timeout.
 
+What is still open after `ServerConfig::$drainTimeout` seconds is closed
+anyway, and a second signal closes it at once. All of this lives in
+[GracefulShutdown](../src/Server/GracefulShutdown.php). The signal handler
+itself only writes a byte to a self-pipe; the loop sees the pipe turn
+readable and runs the shutdown on its own turn, between handlers.
+
 ---
 
 # Backpressure

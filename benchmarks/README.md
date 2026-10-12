@@ -28,6 +28,11 @@ make bench                 # all four levels, 50 requests each
 make bench ARGS="100 200"  # one level: 100 connections, 200 requests each
 ```
 
+The benchmark server lifts `maxConnections` from the default 512 to 1010
+(see `benchmarks/bootstrap.php`), so the 1000 level really is 1000
+connections while staying under the 1024-descriptor `select()` limit. Ask
+for a level above that and the extra clients are refused.
+
 The shape to look for: throughput climbs with concurrency until the single
 loop saturates, then flattens, while the median latency barely moves and
 the tail stretches. There is no per-connection thread or process, so

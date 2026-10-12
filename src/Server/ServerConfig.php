@@ -18,6 +18,13 @@ namespace PhpMiniHttpServer\Server;
  * loop that cannot wait cannot serve anybody. So the server stops
  * accepting well before it gets there, and says so, rather than walking
  * into a limit it has no way to recover from.
+ *
+ * drainTimeout bounds a graceful shutdown. Once draining starts, the
+ * connections still finishing a request get this many seconds; whatever is
+ * left after that is closed, mid-response if need be. Without it a client
+ * that never completes its request would hold shutdown open until a second
+ * signal arrived. It cannot cut a running handler short: the loop only
+ * gets to the deadline between handlers.
  */
 final readonly class ServerConfig
 {
@@ -30,6 +37,7 @@ final readonly class ServerConfig
         public int $maxHeaderBytes = 8192,
         public int $maxBodyBytes = 1_048_576,
         public int $maxConnections = 512,
+        public float $drainTimeout = 30.0,
     ) {
     }
 }

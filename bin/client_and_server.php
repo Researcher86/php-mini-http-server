@@ -10,6 +10,7 @@ use PhpMiniHttpServer\Http\Response\HttpResponse;
 use PhpMiniHttpServer\Http\Response\ResponseFactory;
 use PhpMiniHttpServer\Router\Router;
 use PhpMiniHttpServer\Server\ConnectionHandler;
+use PhpMiniHttpServer\Server\GracefulShutdown;
 use PhpMiniHttpServer\Server\Server;
 use PhpMiniHttpServer\Server\ServerConfig;
 use PhpMiniHttpServer\Server\ServerStartException;
@@ -67,16 +68,8 @@ if ($serverPid === 0) {
 
     // SIGTERM (sent by the parent below) starts a graceful drain; a second
     // signal would force the end, but one clean shutdown is all this demo
-    // needs — after drain the loop has nothing left to wait for and returns.
-    pcntl_async_signals(true);
-
-    $onSignal = static function () use ($loop, $server, $logger): void {
-        $logger->log('shutdown draining: finishing active requests');
-        $loop->removeReadable($server->socket());
-        $server->drain();
-    };
-
-    pcntl_signal(SIGTERM, $onSignal);
+    // needs — once the last connection is done the loop stops on its own.
+    new GracefulShutdown($loop, $server, $logger)->listenForSignals(SIGTERM);
 
     ConnectionHandler::acceptOn($loop, $server, $application, logger: $logger);
 

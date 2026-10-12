@@ -67,7 +67,12 @@ function benchServer(): array
  */
 function benchRunServer(mixed $childPipe): never
 {
-    $server = new Server(new ServerConfig(host: '127.0.0.1', port: 0));
+    // bin/bench.php drives up to 1000 connections, and the default ceiling
+    // of 512 would quietly cap that. 1010 leaves room for a straggler from
+    // the previous level and the /memory probe, and with stdio and the
+    // listening socket it still stays under FD_SETSIZE (1024) — the wall
+    // the ceiling exists to keep away from. See ServerConfig.
+    $server = new Server(new ServerConfig(host: '127.0.0.1', port: 0, maxConnections: 1_010));
     $server->start();
 
     $router = new Router();

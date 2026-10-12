@@ -1,4 +1,4 @@
-.PHONY: up down shell build install test analyse format format-check bench example \
+.PHONY: up down shell htop build install test analyse format format-check bench example \
         run-server run-server-debug run-client run-client-debug run-example
 
 # CI has no terminal to attach to (GitHub Actions sets CI=true), so exec runs
@@ -56,7 +56,7 @@ example: up
 	docker compose exec $(TTY) php php examples/$(EXAMPLE).php
 
 run-client-debug: up
-	docker compose exec $(TTY) php bash -c "XDEBUG_TRIGGER=1 php bin/client.php"
+	docker compose exec $(TTY) php bash -c "XDEBUG_TRIGGER=1 php bin/client.php $(ARGS)"
 
 bench: up
 	docker compose exec $(TTY) php php bin/bench.php $(ARGS)

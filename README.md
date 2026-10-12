@@ -35,6 +35,47 @@ This repository is designed as an:
 
 ---
 
+## 30-second demo
+
+Requires Docker. Nothing is installed on your machine.
+
+```bash
+make build install   # build the image and install dependencies
+make run-server      # start listening on 127.0.0.1:8080
+```
+
+In a second terminal:
+
+```bash
+make run-client ARGS="/hello"
+# HTTP/1.1 200 OK ... Hello
+
+make run-client ARGS="/users/42"
+# HTTP/1.1 200 OK ... {"id":"42"}
+
+make run-client ARGS="/nope"
+# HTTP/1.1 404 Not Found
+```
+
+`bin/client.php` sends one raw request and prints the raw response, so what
+you see is exactly what the server wrote to the socket. Ctrl-C stops the
+server gracefully — requests in flight finish first, for at most 10
+seconds — and a second Ctrl-C forces it down.
+
+## Documentation
+
+| | |
+|---|---|
+| **[docs/PHASES.md](docs/PHASES.md)** | how it was built — the phases, each with what it had to achieve and which tests hold it |
+| **[docs/DECISIONS.md](docs/DECISIONS.md)** | why the code is shaped this way: what was rejected, and which failures forced a change |
+| **[docs/FAILURE-MODEL.md](docs/FAILURE-MODEL.md)** | what breaks, what survives it, and what this server does *not* guarantee |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | how the pieces fit together, traced through a request |
+| **[benchmarks/README.md](benchmarks/README.md)** | what the benchmarks measure and how to run them |
+| **[examples/README.md](examples/README.md)** | one script per behaviour, each answering one question against a real server |
+| the rest of this file | the concepts, in depth |
+
+---
+
 # Why?
 
 From the application side, HTTP often looks simple:
@@ -451,7 +492,10 @@ $router->post('/users', $handler);
 
 # Route Parameters
 
-Dynamic routes are supported conceptually.
+Dynamic routes are supported: a `{name}` segment matches one path segment,
+and the handler receives the captured values as its second argument. An
+exact route wins over a pattern, so `/users/me` stays literal even when
+`/users/{id}` exists.
 
 Example:
 
@@ -868,6 +912,12 @@ During draining:
 ✅ Close Connections
 ```
 
+Draining is bounded: whatever is still open after
+`ServerConfig::$drainTimeout` seconds is closed, and a second signal closes
+it at once. The signal handler itself does nothing but wake the loop — the
+shutdown runs on the loop's own turn, in
+[`GracefulShutdown`](src/Server/GracefulShutdown.php).
+
 > **Note:** graceful shutdown is *cooperative* with respect to handlers. The
 > event loop is single-threaded and handlers run synchronously, so a request
 > that hangs inside its handler (say, a 500ms blocking call) keeps the loop
@@ -1187,56 +1237,6 @@ they add up to are **[docs/FAILURE-MODEL.md](docs/FAILURE-MODEL.md)**.
 
 ---
 
-# PHP Systems Lab
-
-This project is part of [**PHP Systems Lab**](https://github.com/Researcher86/php-systems-lab) — a collection of small
-educational PHP projects that rebuild the mechanisms behind backend
-infrastructure in order to understand them. The recommended order:
-
-| Level | Project | Focus |
-| ----- | ------- | ----- |
-| 1 | 🧠 [`php-memory-lab`](https://github.com/Researcher86/php-memory-lab) | memory, RSS, fork, copy-on-write, `mmap`, shared memory, FFI |
-| 2 | ⚡ [`php-concurrency`](https://github.com/Researcher86/php-concurrency) | processes, IPC, concurrency patterns, event loops, Fibers (course in Russian) |
-| 3 | ⚙️ [`php-worker-pool`](https://github.com/Researcher86/php-worker-pool) | persistent master/worker pool, supervision, graceful shutdown |
-| 4 | 📬 [`php-job-queue`](https://github.com/Researcher86/php-job-queue) | reliable background jobs: delivery leases, ACK, retries, DLQ |
-| 5 | 💾 [`php-mini-cache`](https://github.com/Researcher86/php-mini-cache) | event-driven in-memory server: RESP, pipelining, TTL, Pub/Sub |
-| **6** | 🌐 **`php-mini-http-server`** (this project) | **event-driven HTTP server: parsing, routing, middleware, keep-alive** |
-| 7 | 🗄️ [`php-mini-database`](https://github.com/Researcher86/php-mini-database) | relational engine: pages, B-trees, SQL, transactions, WAL, recovery |
-| 8 | 🏗️ [`php-systems-platform`](https://github.com/Researcher86/php-systems-platform) | integration of the components into one backend platform |
-
-These are teaching projects, not libraries: a mechanism travels between them
-by being read in one and reimplemented in the next. Levels 1–7 do not depend
-on each other as packages. Only [`php-systems-platform`](https://github.com/Researcher86/php-systems-platform) requires the
-five components (worker pool, job queue, cache, HTTP server, database)
-through Composer and runs them together as one system.
-
-## How this project relates
-
-**[`php-memory-lab`](https://github.com/Researcher86/php-memory-lab)** — a keep-alive server holds a read buffer and a
-write buffer per connection, and `php-memory-lab` is where the cost of
-holding them is measured. Backpressure is a memory decision before it is a
-protocol one.
-
-**[`php-mini-cache`](https://github.com/Researcher86/php-mini-cache)** — the previous level, and the same event-loop
-foundation. This project reuses its ideas (not its code) and adds the HTTP
-layer on top:
-
-```text
-php-mini-cache         TCP server → event loop → client connections → non-blocking I/O
-                                                   │
-php-mini-http-server                               └→ HTTP protocol → routing → middleware → handlers
-```
-
-**[`php-worker-pool`](https://github.com/Researcher86/php-worker-pool)** — the multi-process alternative to one event
-loop: where this server interleaves many connections in one process, the pool
-spreads requests across persistent workers.
-
-**[`php-systems-platform`](https://github.com/Researcher86/php-systems-platform)** — uses this server as its HTTP front door
-(`src/Application/`, on top of `Server`, `SelectLoop`, `HttpParser` and
-`ConnectionHandler`).
-
----
-
 # What This Project Is Not
 
 This project is intentionally not trying to become:
@@ -1383,6 +1383,56 @@ The project should remain:
 > **Simple enough to modify.**
 
 > **Complex enough to demonstrate real server engineering problems.**
+
+---
+
+# PHP Systems Lab
+
+This project is part of [**PHP Systems Lab**](https://github.com/Researcher86/php-systems-lab) — a collection of small
+educational PHP projects that rebuild the mechanisms behind backend
+infrastructure in order to understand them. The recommended order:
+
+| Level | Project | Focus |
+| ----- | ------- | ----- |
+| 1 | 🧠 [`php-memory-lab`](https://github.com/Researcher86/php-memory-lab) | memory, RSS, fork, copy-on-write, `mmap`, shared memory, FFI |
+| 2 | ⚡ [`php-concurrency`](https://github.com/Researcher86/php-concurrency) | processes, IPC, concurrency patterns, event loops, Fibers (course in Russian) |
+| 3 | ⚙️ [`php-worker-pool`](https://github.com/Researcher86/php-worker-pool) | persistent master/worker pool, supervision, graceful shutdown |
+| 4 | 📬 [`php-job-queue`](https://github.com/Researcher86/php-job-queue) | reliable background jobs: delivery leases, ACK, retries, DLQ |
+| 5 | 💾 [`php-mini-cache`](https://github.com/Researcher86/php-mini-cache) | event-driven in-memory server: RESP, pipelining, TTL, Pub/Sub |
+| **6** | 🌐 **`php-mini-http-server`** (this project) | **event-driven HTTP server: parsing, routing, middleware, keep-alive** |
+| 7 | 🗄️ [`php-mini-database`](https://github.com/Researcher86/php-mini-database) | relational engine: pages, B-trees, SQL, transactions, WAL, recovery |
+| 8 | 🏗️ [`php-systems-platform`](https://github.com/Researcher86/php-systems-platform) | integration of the components into one backend platform |
+
+These are teaching projects, not libraries: a mechanism travels between them
+by being read in one and reimplemented in the next. Levels 1–7 do not depend
+on each other as packages. Only [`php-systems-platform`](https://github.com/Researcher86/php-systems-platform) requires the
+five components (worker pool, job queue, cache, HTTP server, database)
+through Composer and runs them together as one system.
+
+## How this project relates
+
+**[`php-memory-lab`](https://github.com/Researcher86/php-memory-lab)** — a keep-alive server holds a read buffer and a
+write buffer per connection, and `php-memory-lab` is where the cost of
+holding them is measured. Backpressure is a memory decision before it is a
+protocol one.
+
+**[`php-mini-cache`](https://github.com/Researcher86/php-mini-cache)** — the previous level, and the same event-loop
+foundation. This project reuses its ideas (not its code) and adds the HTTP
+layer on top:
+
+```text
+php-mini-cache         TCP server → event loop → client connections → non-blocking I/O
+                                                   │
+php-mini-http-server                               └→ HTTP protocol → routing → middleware → handlers
+```
+
+**[`php-worker-pool`](https://github.com/Researcher86/php-worker-pool)** — the multi-process alternative to one event
+loop: where this server interleaves many connections in one process, the pool
+spreads requests across persistent workers.
+
+**[`php-systems-platform`](https://github.com/Researcher86/php-systems-platform)** — uses this server as its HTTP front door
+(`src/Application/`, on top of `Server`, `SelectLoop`, `HttpParser` and
+`ConnectionHandler`).
 
 ## License
 

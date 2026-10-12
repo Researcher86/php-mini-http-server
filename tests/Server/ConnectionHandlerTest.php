@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace PhpMiniHttpServer\Tests\EventLoop;
+namespace PhpMiniHttpServer\Tests\Server;
 
 use PhpMiniHttpServer\EventLoop\SelectLoop;
 use PhpMiniHttpServer\Http\Middleware\ErrorHandlerMiddleware;
@@ -17,6 +17,7 @@ use PhpMiniHttpServer\Server\ConnectionHandler;
 use PhpMiniHttpServer\Server\Server;
 use PhpMiniHttpServer\Server\ServerConfig;
 use PhpMiniHttpServer\Support\NullLogger;
+use PhpMiniHttpServer\Tests\Support\ManualEventLoop;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -277,6 +278,33 @@ final class ConnectionHandlerTest extends TestCase
         fclose($client);
     }
 
+    public function testAKeepAliveConnectionBetweenRequestsIsAtRestNotMidHeader(): void
+    {
+        $router = new Router();
+        $router->get('/hello', static fn (): HttpResponse => ResponseFactory::text('Hello'));
+
+        $loop = new SelectLoop();
+        $this->wireServer($loop, new HttpParser(), new MiddlewarePipeline($router), new ResponseEncoder());
+
+        $client = stream_socket_client("tcp://127.0.0.1:{$this->server->getPort()}");
+        $this->assertIsResource($client);
+        fwrite($client, "GET /hello HTTP/1.1\r\nHost: t\r\n\r\n");
+
+        $loop->addTimer(0.2, static fn () => $loop->stop());
+        $loop->run();
+
+        // The request was served and nothing else has arrived: an empty
+        // buffer is a client between requests, not one slow to finish its
+        // headers. The header clock would reap it after headerTimeout
+        // instead of connectionTimeout, and a draining server would never
+        // see it come to rest.
+        $this->assertSame(1, $this->server->connectionCount());
+        $this->assertSame(0.0, $this->server->connections()[0]->waitingForHeadersSince());
+        $this->assertCount(1, $this->server->closeRestingConnections());
+
+        fclose($client);
+    }
+
     public function testClientThatHalfClosesAfterItsRequestStillGetsTheResponse(): void
     {
         $router = new Router();
@@ -349,6 +377,51 @@ final class ConnectionHandlerTest extends TestCase
         $this->assertSame(0, $this->server->connectionCount());
 
         fclose($client);
+    }
+
+    public function testAnEmptyReadThatIsNotEofLeavesTheConnectionOpen(): void
+    {
+        $client = stream_socket_client("tcp://127.0.0.1:{$this->server->getPort()}");
+        $this->assertIsResource($client);
+
+        $connection = $this->server->accept();
+
+        for ($i = 0; $i < 100 && $connection === null; $i++) {
+            usleep(1000);
+            $connection = $this->server->accept();
+        }
+
+        $this->assertNotNull($connection);
+
+        $loop = new ManualEventLoop();
+        new ConnectionHandler(
+            $loop,
+            $this->server,
+            $connection,
+            new HttpParser(),
+            new MiddlewarePipeline(new Router()),
+            new ResponseEncoder(),
+            new ServerMetrics(),
+            new NullLogger(),
+        )->start();
+
+        // A readiness report with nothing behind it: the client is connected
+        // and silent, so the non-blocking read returns '' — and that is not
+        // the peer hanging up. Only feof() can say that.
+        $loop->fireReadable($connection->socket());
+
+        $this->assertSame(1, $this->server->connectionCount());
+        $this->assertTrue($loop->isWatchingReadable($connection->socket()));
+
+        // A real EOF still closes it.
+        fclose($client);
+
+        for ($i = 0; $i < 100 && $this->server->connectionCount() > 0; $i++) {
+            usleep(1000);
+            $loop->fireReadable($connection->socket());
+        }
+
+        $this->assertSame(0, $this->server->connectionCount());
     }
 
     /**

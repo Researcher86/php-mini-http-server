@@ -11,13 +11,15 @@ declare(strict_types=1);
  * run-server`, because the interesting part is what the server does on the
  * way out, and it needs to be signalled at a moment this script chooses.
  *
- * The sequence: one client connects and completes a request, so it is
- * sitting on a kept-alive connection between requests. Then SIGTERM
- * arrives. Then the client asks for one more thing.
+ * The sequence: one client connects and completes a request on a kept-alive
+ * connection, then starts a second one — half of it is on the wire. Then
+ * SIGTERM arrives. Then the client sends the rest.
  *
  * What it must NOT get is silence. A drained server refuses the new request
  * with 503 and Connection: close, so the client is told what happened
- * instead of watching a socket die.
+ * instead of watching a socket die. (A client sitting idle between requests
+ * is a different case: it has nothing to finish, so draining simply closes
+ * its connection at once.)
  */
 
 require __DIR__ . '/bootstrap.php';
@@ -29,6 +31,7 @@ use PhpMiniHttpServer\Http\Response\HttpResponse;
 use PhpMiniHttpServer\Http\Response\ResponseFactory;
 use PhpMiniHttpServer\Router\Router;
 use PhpMiniHttpServer\Server\ConnectionHandler;
+use PhpMiniHttpServer\Server\GracefulShutdown;
 use PhpMiniHttpServer\Server\Server;
 use PhpMiniHttpServer\Server\ServerConfig;
 use PhpMiniHttpServer\Support\StderrLogger;
@@ -55,24 +58,11 @@ if ($serverPid === 0) {
 
     $loop = new SelectLoop();
     $logger = new StderrLogger();
-    $draining = false;
 
-    pcntl_async_signals(true);
-    pcntl_signal(SIGTERM, static function () use (&$draining, $server, $loop, $logger): void {
-        $draining = true;
-        $logger->log('SIGTERM → DRAINING: listening socket closed, established connections kept');
-        $loop->removeReadable($server->socket());
-        $server->drain();
-    });
-
-    // Once drained and empty, there is nothing left to finish.
-    $loop->every(0.2, static function () use (&$draining, $server, $loop, $logger): void {
-        if ($draining && $server->connectionCount() === 0) {
-            $logger->log('every connection finished → FINISHING → STOPPED');
-            $server->finish();
-            $loop->stop();
-        }
-    });
+    // SIGTERM → DRAINING: the listening socket closes, established
+    // connections are kept, and once the last one is done the server goes
+    // FINISHING → STOPPED on its own.
+    new GracefulShutdown($loop, $server, $logger)->listenForSignals(SIGTERM);
 
     ConnectionHandler::acceptOn($loop, $server, $application, logger: $logger);
 
@@ -104,10 +94,16 @@ fwrite($client, $request);
 $before = exampleReadResponse($client);
 printf("Before the signal: %d, and the connection stays open:\n%s\n\n", $before['status'], $before['head']);
 
+// The next request is in flight when the signal lands: its first line is
+// sent, the rest is not.
+$split = strlen("GET /hello HTTP/1.1\r\n");
+fwrite($client, substr($request, 0, $split));
+usleep(100_000);
+
 posix_kill($serverPid, SIGTERM);
 usleep(200_000);
 
-fwrite($client, $request);
+fwrite($client, substr($request, $split));
 $after = exampleReadResponse($client);
 
 printf("\nAfter the signal, on the SAME connection: %d\n", $after['status']);

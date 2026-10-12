@@ -1007,7 +1007,7 @@ One failed request does not stop the server.
   served as if nothing had happened.
 - The Definition of Done is not "an error becomes a response" but "the
   server survives it", so three tests attack the loop itself:
-  [tests/EventLoop/ConnectionHandlerTest.php](../tests/EventLoop/ConnectionHandlerTest.php) —
+  [tests/Server/ConnectionHandlerTest.php](../tests/Server/ConnectionHandlerTest.php) —
   `testMalformedRequestAnswers400ThenClosesTheConnection`,
   `testClientThatVanishesMidWriteClosesOnlyItsOwnConnection` (a client that
   disappears mid-response used to kill the process) and
@@ -1166,7 +1166,7 @@ The parser correctly handles multiple buffered requests.
   `testPipelinedRequestsGetOrderedResponses` is the Definition of Done over
   a real socket, ordering included: HTTP/1.1 pipelining requires responses
   in request order.
-- [tests/EventLoop/ConnectionHandlerTest.php](../tests/EventLoop/ConnectionHandlerTest.php) —
+- [tests/Server/ConnectionHandlerTest.php](../tests/Server/ConnectionHandlerTest.php) —
   `testBackpressurePausesReadsThenResumesKeepingTheBatchIntact` is where
   pipelining and Phase 18 meet: requests already buffered when reads pause
   must still be answered, since no new network event will come to wake
@@ -1323,7 +1323,7 @@ The server protects itself from slow clients.
 
 ## Tests
 
-- [tests/EventLoop/ConnectionHandlerTest.php](../tests/EventLoop/ConnectionHandlerTest.php) —
+- [tests/Server/ConnectionHandlerTest.php](../tests/Server/ConnectionHandlerTest.php) —
   `testBackpressurePausesReadsThenResumesKeepingTheBatchIntact` is the
   whole cycle in one test, with the ceiling turned down to 128 bytes: the
   buffer crosses it, reads stop, the buffer drains, reads resume — and the
@@ -1391,6 +1391,12 @@ The server supports graceful shutdown.
   `testPipelinedRequestsAlreadyInBufferAreRefusedAtDrain` and
   `testPipelinedRequestsAfterDrainAreRefusedInOneBurst` cover the awkward
   moments — bytes that were already on the wire when the signal arrived.
+- [tests/Server/GracefulShutdownTest.php](../tests/Server/GracefulShutdownTest.php) —
+  the whole sequence as `bin/server.php` runs it: resting connections reaped
+  and the loop stopping on its own, an in-flight request refused with 503,
+  a second request forcing the end, the drain deadline closing a straggler,
+  and `testASignalChangesNothingUntilTheLoopHandlesIt` — the signal handler
+  only wakes the loop.
 
 ---
 
@@ -1432,7 +1438,7 @@ Basic observability.
   the counters themselves: `testStartsWithZeroCounters`,
   `testRecordsRequestsAndDuration`, `testRecordsBytes`,
   `testRequestsPerSecondUsesUptime`.
-- [tests/EventLoop/ConnectionHandlerTest.php](../tests/EventLoop/ConnectionHandlerTest.php) —
+- [tests/Server/ConnectionHandlerTest.php](../tests/Server/ConnectionHandlerTest.php) —
   `testMetricsCountRequestsAndBytesOfARealExchange` is the claim that
   matters: the numbers `GET /metrics` prints come from a running server
   actually reporting into them, not from a collector nobody calls.

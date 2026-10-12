@@ -7,7 +7,7 @@ namespace PhpMiniHttpServer\Server;
 use Closure;
 use PhpMiniHttpServer\Connection\Connection;
 use PhpMiniHttpServer\Connection\WriteBufferException;
-use PhpMiniHttpServer\EventLoop\SelectLoop;
+use PhpMiniHttpServer\EventLoop\EventLoop;
 use PhpMiniHttpServer\Http\Handler\RequestHandler;
 use PhpMiniHttpServer\Http\Protocol\HttpMethod;
 use PhpMiniHttpServer\Http\Protocol\HttpParser;
@@ -47,7 +47,7 @@ final readonly class ConnectionHandler
     public const int MAX_BUFFERED_RESPONSE_BYTES = 65536;
 
     public function __construct(
-        private SelectLoop $loop,
+        private EventLoop $loop,
         private Server $server,
         private Connection $connection,
         private HttpParser $parser,
@@ -65,7 +65,7 @@ final readonly class ConnectionHandler
      * defaults to the server's configured header/body limits.
      */
     public static function acceptOn(
-        SelectLoop $loop,
+        EventLoop $loop,
         Server $server,
         RequestHandler $application,
         ServerMetrics $metrics = new ServerMetrics(),
@@ -113,6 +113,13 @@ final readonly class ConnectionHandler
     {
         $data = fread($stream, 8192);
 
+        // On a non-blocking socket an empty read only means "nothing to
+        // read right now" — a readiness that came to nothing. Only feof()
+        // tells that apart from the peer having hung up.
+        if ($data === '' && !feof($stream)) {
+            return;
+        }
+
         if ($data === false || $data === '') {
             // EOF: the client has stopped sending, which is not the same as
             // having stopped listening — `printf 'GET …' | nc` half-closes
@@ -158,8 +165,13 @@ final readonly class ConnectionHandler
             if ($parsed === null) {
                 // No complete request yet — the header clock starts (or
                 // keeps running) so the Slowloris sweep can reap a client
-                // that never finishes its header block.
-                $this->connection->noteWaitingForHeaders();
+                // that never finishes its header block. An empty buffer is
+                // not that: it is a keep-alive client between requests,
+                // which the idle timeout governs, not the header one.
+                if (!$this->connection->readBuffer()->isEmpty()) {
+                    $this->connection->noteWaitingForHeaders();
+                }
+
                 break; // wait for more bytes
             }
 
