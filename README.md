@@ -1,6 +1,6 @@
 # PHP Mini HTTP Server
 
-**[🧪 PHP Systems Lab](https://github.com/Researcher86/php-systems-lab)** · Level 6 of 8 · ← [`php-mini-cache`](https://github.com/Researcher86/php-mini-cache) · [`php-mini-database`](https://github.com/Researcher86/php-mini-database) →
+**[🧪 PHP Systems Lab](https://github.com/Researcher86/php-systems-lab)** · Level 6 of 9 · ← [`php-mini-cache`](https://github.com/Researcher86/php-mini-cache) · [`php-mini-database`](https://github.com/Researcher86/php-mini-database) →
 
 > An educational event-driven HTTP server written in PHP.
 
@@ -1401,12 +1401,13 @@ infrastructure in order to understand them. The recommended order:
 | 5 | 💾 [`php-mini-cache`](https://github.com/Researcher86/php-mini-cache) | event-driven in-memory server: RESP, pipelining, TTL, Pub/Sub |
 | **6** | 🌐 **`php-mini-http-server`** (this project) | **event-driven HTTP server: parsing, routing, middleware, keep-alive** |
 | 7 | 🗄️ [`php-mini-database`](https://github.com/Researcher86/php-mini-database) | relational engine: pages, B-trees, SQL, transactions, WAL, recovery |
-| 8 | 🏗️ [`php-systems-platform`](https://github.com/Researcher86/php-systems-platform) | integration of the components into one backend platform |
+| 8 | 🔎 [`php-mini-search`](https://github.com/Researcher86/php-mini-search) | full-text search: analysis, stemming, inverted index, BM25, reindexing |
+| 9 | 🏗️ [`php-systems-platform`](https://github.com/Researcher86/php-systems-platform) | integration of the components into one backend platform |
 
 These are teaching projects, not libraries: a mechanism travels between them
-by being read in one and reimplemented in the next. Levels 1–7 do not depend
+by being read in one and reimplemented in the next. Levels 1–8 do not depend
 on each other as packages. Only [`php-systems-platform`](https://github.com/Researcher86/php-systems-platform) requires the
-five components (worker pool, job queue, cache, HTTP server, database)
+six components (worker pool, job queue, cache, HTTP server, database, search)
 through Composer and runs them together as one system.
 
 ## How this project relates
